@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect fill="#005faf" rx="24" width="100" height="100"/>
+  <circle cx="80" cy="20" r="12" fill="#a3c9ff" opacity="0.8"/>
+  <text x="46" y="66" font-size="44" font-weight="800" fill="white" text-anchor="middle" font-family="'Outfit', 'Inter', sans-serif">P</text>
+  <text x="72" y="74" font-size="36" font-weight="800" fill="#a3c9ff" text-anchor="middle" font-family="'Outfit', 'Inter', sans-serif">N</text>
+</svg>

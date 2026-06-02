@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI PDF & Page Markdown Notebook</title>
+    <!-- Google Fonts & Material Symbols -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet" />
+  </head>
+  <body>
+    <div id="app" class="app-container">
+      
+      <!-- Top Bar: Adaptive Utility Toolbar -->
+      <header class="top-bar">
+        <!-- Left Section: File Actions -->
+        <div class="toolbar-section left-section">
+          <button id="btn-open-pdf" class="m3-btn m3-btn-tonal" title="Open PDF File">
+            <span class="material-symbols-outlined">picture_as_pdf</span>
+            <span>Open PDF</span>
+          </button>
+          <button id="btn-open-bundle" class="m3-btn m3-btn-tonal" title="Open Workspace Bundle (.pdfmd / .zip)">
+            <span class="material-symbols-outlined">folder_open</span>
+            <span>Open Bundle</span>
+          </button>
+          <button id="btn-link-folder" class="m3-btn m3-btn-tonal" title="Link Local Folder (File System Access)">
+            <span class="material-symbols-outlined">sync</span>
+            <span>Link Folder</span>
+          </button>
+          <button id="btn-save-workspace" class="m3-btn m3-btn-primary" title="Save / Export Workspace">
+            <span class="material-symbols-outlined">save</span>
+            <span>Save</span>
+          </button>
+        </div>
+
+        <!-- Center Section: PDF Navigation & Markup Tools -->
+        <div class="toolbar-section center-section">
+          <!-- Page Nav -->
+          <div class="nav-controls">
+            <button id="pdf-prev" class="m3-icon-btn" title="Previous Page">
+              <span class="material-symbols-outlined">navigate_before</span>
+            </button>
+            <div class="page-teleport">
+              <input type="number" id="page-current" class="m3-input-page" value="1" min="1" />
+              <span class="page-divider">/</span>
+              <span id="page-total" class="page-total">1</span>
+            </div>
+            <button id="pdf-next" class="m3-icon-btn" title="Next Page">
+              <span class="material-symbols-outlined">navigate_next</span>
+            </button>
+          </div>
+
+          <div class="toolbar-divider"></div>
+
+          <!-- Zoom controls -->
+          <div class="zoom-controls">
+            <button id="zoom-out" class="m3-icon-btn" title="Zoom Out">
+              <span class="material-symbols-outlined">zoom_out</span>
+            </button>
+            <select id="zoom-select" class="m3-select" title="Zoom Level">
+              <option value="0.5">50%</option>
+              <option value="0.75">75%</option>
+              <option value="1.0" selected>100%</option>
+              <option value="1.25">125%</option>
+              <option value="1.5">150%</option>
+              <option value="2.0">200%</option>
+              <option value="auto">Auto</option>
+              <option value="page-fit">Fit Page</option>
+            </select>
+            <button id="zoom-in" class="m3-icon-btn" title="Zoom In">
+              <span class="material-symbols-outlined">zoom_in</span>
+            </button>
+          </div>
+
+          <div class="toolbar-divider"></div>
+
+          <!-- Markup Selectors -->
+          <div class="markup-controls">
+            <button id="tool-cursor" class="m3-icon-btn active" title="Select Text / Cursor">
+              <span class="material-symbols-outlined">near_me</span>
+            </button>
+            <button id="tool-highlight" class="m3-icon-btn" title="Highlight Tool">
+              <span class="material-symbols-outlined">border_color</span>
+            </button>
+            <button id="tool-underline" class="m3-icon-btn" title="Underline Tool">
+              <span class="material-symbols-outlined">format_underlined</span>
+            </button>
+            <button id="tool-draw" class="m3-icon-btn" title="Freehand Draw">
+              <span class="material-symbols-outlined">gesture</span>
+            </button>
+            <button id="tool-text" class="m3-icon-btn" title="Add Text Overlay">
+              <span class="material-symbols-outlined">title</span>
+            </button>
+            <button id="tool-signature" class="m3-icon-btn" title="Add Signature">
+              <span class="material-symbols-outlined">signature</span>
+            </button>
+            <button id="tool-eraser" class="m3-icon-btn" title="Clear Visual Annotations">
+              <span class="material-symbols-outlined">delete</span>
+            </button>
+            <button id="btn-print" class="m3-icon-btn" title="Print PDF">
+              <span class="material-symbols-outlined">print</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Right Section: Dark Mode Toggle & Help/About -->
+        <div class="toolbar-section right-section">
+          <button id="btn-help" class="m3-icon-btn" title="Help Guide">
+            <span class="material-symbols-outlined">help</span>
+          </button>
+          <button id="btn-about" class="m3-icon-btn" title="About App">
+            <span class="material-symbols-outlined">info</span>
+          </button>
+          <button id="theme-toggle" class="m3-icon-btn" title="Toggle Light/Dark Theme">
+            <span class="material-symbols-outlined">dark_mode</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Main Layout Body -->
+      <div class="workspace-layout">
+
+        <!-- Left Panel: Collapsible Document Map -->
+        <aside id="left-panel" class="left-panel">
+          <div class="panel-header">
+            <div class="m3-tabs">
+              <button id="tab-outline" class="m3-tab">Outline</button>
+              <button id="tab-thumbnails" class="m3-tab active">Thumbnails</button>
+            </div>
+            <button id="btn-collapse-left" class="m3-icon-btn m3-collapse-btn" title="Collapse Panel">
+              <span class="material-symbols-outlined">keyboard_double_arrow_left</span>
+            </button>
+          </div>
+          <div class="panel-content">
+            <div id="outline-container" class="tab-panel">
+              <div class="empty-state">No outline available</div>
+            </div>
+            <div id="thumbnails-container" class="tab-panel virtual-thumbnails active">
+              <div class="empty-state">No PDF loaded</div>
+            </div>
+          </div>
+        </aside>
+
+        <!-- Sidebar toggler for collapsed left panel -->
+        <button id="btn-expand-left" class="m3-expand-sidebar-btn left-side hidden" title="Expand Document Map">
+          <span class="material-symbols-outlined">menu_open</span>
+        </button>
+
+        <!-- Center Pane: Main PDF Viewport -->
+        <main id="pdf-viewport" class="pdf-viewport">
+          <div id="pdf-viewer" class="pdf-viewer-canvas-container">
+            <div class="pdf-placeholder-state">
+              <span class="material-symbols-outlined placeholder-icon">picture_as_pdf</span>
+              <h2>No PDF Loaded</h2>
+              <p>Click "Open PDF" or drop a PDF here to begin your interactive note session.</p>
+              <button id="btn-placeholder-open" class="m3-btn m3-btn-primary">Choose PDF File</button>
+            </div>
+          </div>
+        </main>
+
+        <!-- Sidebar toggler for collapsed right panel -->
+        <button id="btn-expand-right" class="m3-expand-sidebar-btn right-side hidden" title="Expand Note Workspace">
+          <span class="material-symbols-outlined">edit_note</span>
+        </button>
+
+        <!-- Right Panel: Collapsible Note Workspace -->
+        <aside id="right-panel" class="right-panel">
+          
+          <!-- Panel collapser bar on the left edge -->
+          <div id="btn-collapse-right" class="right-panel-collapse-edge" title="Collapse Notes">
+            <span class="material-symbols-outlined drag-arrow">keyboard_double_arrow_right</span>
+          </div>
+
+          <div class="right-panel-inner">
+            <!-- Format Toolbar -->
+            <div class="note-format-toolbar">
+              <span class="toolbar-title">Page <span id="note-page-num">1</span> Notes</span>
+              <div class="format-buttons">
+                <button id="btn-insert-link" class="m3-icon-btn m3-icon-btn-small" title="Insert Link">
+                  <span class="material-symbols-outlined">link</span>
+                </button>
+                <button id="btn-insert-image" class="m3-icon-btn m3-icon-btn-small" title="Insert Image Link">
+                  <span class="material-symbols-outlined">image</span>
+                </button>
+                <button id="btn-insert-mermaid" class="m3-icon-btn m3-icon-btn-small" title="Insert Mermaid Diagram">
+                  <span class="material-symbols-outlined">schema</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Workspace Area: Editor & Rendered Container overlay -->
+            <div class="note-workspace-container">
+              
+              <!-- CodeMirror 6 Editor Container -->
+              <div id="editor-container" class="workspace-mode-panel edit-mode">
+                <!-- CodeMirror attaches here -->
+              </div>
+
+              <!-- Rendered Markdown Container -->
+              <div id="preview-container" class="workspace-mode-panel read-mode active">
+                <div class="preview-scrollable markdown-body">
+                  <div class="empty-state">No notes for this page yet. Click the edit button below to start writing.</div>
+                </div>
+              </div>
+
+              <!-- Floating Action Button (FAB) -->
+              <button id="fab-toggle-mode" class="m3-fab" title="Switch to Edit Mode">
+                <span class="material-symbols-outlined fab-icon">edit</span>
+              </button>
+
+            </div>
+
+            <!-- Bottom Section: Orphaned Notes Container -->
+            <div id="orphaned-notes-section" class="orphaned-notes-section collapsed">
+              <div class="orphaned-header">
+                <span class="material-symbols-outlined warning-icon">warning</span>
+                <span>Orphaned Notes (<span id="orphaned-count">0</span>)</span>
+                <span class="material-symbols-outlined chevron">expand_less</span>
+              </div>
+              <div class="orphaned-content">
+                <!-- List of notes associated with page indexes no longer in PDF -->
+              </div>
+            </div>
+            
+          </div>
+        </aside>
+
+      </div>
+
+      <!-- Hidden inputs for file loading -->
+      <input type="file" id="input-pdf-file" accept="application/pdf" style="display: none;" />
+      <input type="file" id="input-bundle-file" accept=".zip,.pdfmd" style="display: none;" />
+      <input type="file" id="input-image-file" accept="image/*" style="display: none;" />
+
+      <!-- Notice Banner / Restore Sessions -->
+      <div id="restore-banner" class="m3-banner hidden">
+        <div class="banner-content">
+          <span class="material-symbols-outlined banner-icon">history_toggle_off</span>
+          <div class="banner-text">
+            <strong>Unsaved session found!</strong>
+            <span>Do you want to restore your previous notes and markup for "<span id="restore-filename">document</span>"?</span>
+          </div>
+        </div>
+        <div class="banner-actions">
+          <button id="btn-restore-discard" class="m3-btn m3-btn-text">Discard</button>
+          <button id="btn-restore-confirm" class="m3-btn m3-btn-primary">Restore Session</button>
+        </div>
+      </div>
+
+      <!-- Image Lightbox Viewer -->
+      <div id="image-lightbox" class="lightbox-overlay hidden" aria-hidden="true">
+        <button id="lightbox-close" class="lightbox-close-btn" aria-label="Close image viewer">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+        <div class="lightbox-content">
+          <img id="lightbox-image" src="" alt="Expanded note image" />
+          <div id="lightbox-svg-container" style="display: none;"></div>
+        </div>
+      </div>
+
+      <!-- Help & User Guide Dialog -->
+      <dialog id="help-dialog" class="m3-dialog">
+        <div class="dialog-header">
+          <h2>Help &amp; User Guide</h2>
+          <button id="help-dialog-close" class="dialog-close-btn" aria-label="Close dialog">
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </div>
+        <div class="dialog-body scrollable-content">
+          <h3>📖 Overview</h3>
+          <p>PDFNote is a client-side web application designed to act as a synchronized PDF viewer and page-by-page Markdown notebook. Your text notes, drawings, and markups are automatically linked to their respective pages.</p>
+          
+          <h3>📂 Loading &amp; Saving Documents</h3>
+          <ul>
+            <li><strong>Open PDF</strong>: Loads a PDF file for viewing and drawing.</li>
+            <li><strong>Open Bundle (.pdfmd / .zip)</strong>: Restores a saved workspace. This loads the original PDF file, all of your page-by-page markdown notes, and drawing layers.</li>
+            <li><strong>Link Folder</strong>: Connects to a local directory on your device using the File System Access API. Enabling this folder sync allows the app to automatically write <code>{pdf_name}_notes.json</code>, <code>{pdf_name}_notes.md</code>, and individual assets directly to your disk while you work.</li>
+            <li><strong>Save</strong>: Exports your workspace as a <code>.pdfmd</code> zipped file containing notes, images, drawings, and the PDF.</li>
+          </ul>
+
+          <h3>🛠️ Toolbar Control Reference</h3>
+          <ul>
+            <li><span class="material-symbols-outlined inline-icon">picture_as_pdf</span> <strong>Open PDF</strong>: Load a PDF file.</li>
+            <li><span class="material-symbols-outlined inline-icon">folder_open</span> <strong>Open Bundle</strong>: Load a saved workspace package.</li>
+            <li><span class="material-symbols-outlined inline-icon">sync</span> <strong>Link Folder</strong>: Sync directly to a local device folder.</li>
+            <li><span class="material-symbols-outlined inline-icon">save</span> <strong>Save</strong>: Save notes, drawings, and PDF to a bundle package.</li>
+            <li><span class="material-symbols-outlined inline-icon">navigate_before</span> / <span class="material-symbols-outlined inline-icon">navigate_next</span> <strong>Page Navigation</strong>: Turn pages (Keyboard Arrow keys Left/Right also navigate pages when not typing).</li>
+            <li><span class="material-symbols-outlined inline-icon">zoom_out</span> / <span class="material-symbols-outlined inline-icon">zoom_in</span> <strong>Zoom Controls</strong>: Change zoom scale or select fitting behaviors.</li>
+            <li><span class="material-symbols-outlined inline-icon">arrow_selector_tool</span> <strong>Cursor Tool</strong>: Standard selection tool. Use to edit annotations or highlight text.</li>
+            <li><span class="material-symbols-outlined inline-icon">border_color</span> <strong>Highlight Tool</strong>: Highlight text content inside the PDF.</li>
+            <li><span class="material-symbols-outlined inline-icon">format_underlined</span> <strong>Underline Tool</strong>: Underline text content inside the PDF.</li>
+            <li><span class="material-symbols-outlined inline-icon">gesture</span> <strong>Draw Tool</strong>: Freehand drawing tool for canvas overlay annotations.</li>
+            <li><span class="material-symbols-outlined inline-icon">title</span> <strong>Text Tool</strong>: Add floating text boxes directly on the PDF.</li>
+            <li><span class="material-symbols-outlined inline-icon">signature</span> <strong>Signature Tool</strong>: Draw and place signature blocks on the page.</li>
+            <li><span class="material-symbols-outlined inline-icon">ink_eraser</span> <strong>Eraser Tool</strong>: Eraser tool to wipe out drawing/text markups.</li>
+          </ul>
+
+          <h3>📝 Markdown Notebook Editor</h3>
+          <ul>
+            <li>Take markdown notes for the active page on the right workspace panel.</li>
+            <li>Use format accelerators (Bold, Italic, Code block, List, Link, Image, Mermaid diagrams) in the markdown bar to quickly write rich notes.</li>
+            <li>Images and diagrams are click-to-expand. Clicking them inside notes view mode opens a full-screen blurred lightbox.</li>
+          </ul>
+
+          <h3>🔄 Auto-Save &amp; Cache Recovery</h3>
+          <ul>
+            <li>Typing or drawing automatically saves data to an IndexedDB background cache every 3 seconds.</li>
+            <li>If a browser crash occurs, the app prompts you to restore your exact unsaved session when you reload.</li>
+          </ul>
+        </div>
+      </dialog>
+
+      <!-- About Dialog -->
+      <dialog id="about-dialog" class="m3-dialog m3-dialog-small">
+        <div class="dialog-header">
+          <h2>About PDFNote</h2>
+          <button id="about-dialog-close" class="dialog-close-btn" aria-label="Close dialog">
+            <span class="material-symbols-outlined">close</span>
+          </button>
+        </div>
+        <div class="dialog-body centered-about">
+          <div class="about-logo-wrapper">
+            <svg class="about-logo" viewBox="0 0 100 100">
+              <rect fill="var(--md-sys-color-primary)" rx="24" width="100" height="100"/>
+              <circle cx="80" cy="20" r="12" fill="var(--md-sys-color-primary-container)" opacity="0.8"/>
+              <text x="46" y="66" font-size="44" font-weight="800" fill="var(--md-sys-color-on-primary)" text-anchor="middle" font-family="'Outfit', 'Inter', sans-serif">P</text>
+              <text x="72" y="74" font-size="36" font-weight="800" fill="var(--md-sys-color-primary-container)" text-anchor="middle" font-family="'Outfit', 'Inter', sans-serif">N</text>
+            </svg>
+          </div>
+          <h3>PDFNote Web</h3>
+          <p class="about-creator">Created by <strong>Borish127</strong></p>
+          <p class="about-desc">A synchronized PDF viewer and page-by-page Markdown notebook. Easily read, annotate, and take rich, structured notes dynamically linked to each page of your PDF documents.</p>
+          
+          <div class="about-links">
+            <a href="https://github.com/borish127/PDFNote_web" target="_blank" rel="noopener" class="m3-btn m3-btn-tonal dialog-link">
+              <span class="material-symbols-outlined">code</span>
+              <span>GitHub Repository</span>
+            </a>
+          </div>
+
+          <div class="about-feedback">
+            <p>We invite you to give feedback, report bugs, or share suggestions!</p>
+            <a href="https://github.com/borish127/PDFNote_web/issues" target="_blank" rel="noopener">Give feedback &amp; suggestions</a>
+          </div>
+        </div>
+      </dialog>
+
+    </div>
+
+    <!-- Main Module script -->
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
