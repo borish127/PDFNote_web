@@ -73,6 +73,14 @@ export function initEditor({ onTextChange, onImagePaste }) {
   // Setup FAB Toggle Mode
   fabToggleMode.addEventListener('click', toggleMode);
 
+  // Setup Keyboard Shortcut Ctrl + E to toggle Mode
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'e') {
+      e.preventDefault();
+      toggleMode();
+    }
+  });
+
   // Setup Sidebar Collapses
   btnCollapseRight.addEventListener('click', () => {
     rightPanel.classList.add('collapsed');
@@ -145,14 +153,14 @@ export function setMode(mode) {
     previewContainer.classList.remove('active');
     editorContainer.classList.add('active');
     fabIcon.textContent = 'visibility';
-    fabToggleMode.title = 'Switch to Read Mode';
+    fabToggleMode.title = 'Switch to Read Mode (Ctrl + E)';
     // Focus Editor
     setTimeout(() => editorView.focus(), 150);
   } else {
     editorContainer.classList.remove('active');
     previewContainer.classList.add('active');
     fabIcon.textContent = 'edit';
-    fabToggleMode.title = 'Switch to Edit Mode';
+    fabToggleMode.title = 'Switch to Edit Mode (Ctrl + E)';
   }
 }
 

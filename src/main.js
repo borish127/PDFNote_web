@@ -88,7 +88,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Initialize Sub-systems
   initPdfViewer({
     onPageChange: handlePageChange,
-    onMarkupChange: handleMarkupChange
+    onMarkupChange: handleMarkupChange,
+    onFileDrop: handleDroppedFile
   });
 
   initEditor({
@@ -262,32 +263,67 @@ function initTheme() {
 
 // --- FILE HANDLERS ---
 
+// Check if there are unsaved changes and prompt the user to save, discard, or cancel
+async function checkUnsavedChanges() {
+  if (saveState === 'unsaved') {
+    const save = confirm("You have unsaved changes. Do you want to save your workspace bundle before loading a new document?");
+    if (save) {
+      await exportWorkspaceBundle();
+      return true;
+    } else {
+      const proceed = confirm("Are you sure you want to discard your unsaved changes and proceed?");
+      return proceed;
+    }
+  }
+  return true;
+}
+
+// Handle both dropped PDFs and Workspace bundles (.pdfmd)
+async function handleDroppedFile(file) {
+  if (file.name.endsWith('.pdfmd') || file.name.endsWith('.zip')) {
+    const proceed = await checkUnsavedChanges();
+    if (proceed) {
+      await importWorkspaceBundle(file);
+    }
+  } else if (file.type === 'application/pdf') {
+    const proceed = await checkUnsavedChanges();
+    if (proceed) {
+      await loadPdfFileObject(file);
+    }
+  }
+}
+
 async function handlePdfFileSelect(e) {
   const file = e.target.files[0];
   if (file) {
-    await loadPdfFileObject(file);
+    const proceed = await checkUnsavedChanges();
+    if (proceed) {
+      await loadPdfFileObject(file);
+    } else {
+      inputPdfFile.value = '';
+    }
   }
 }
 
 async function handleBundleFileSelect(e) {
   const file = e.target.files[0];
   if (file) {
-    await importWorkspaceBundle(file);
+    const proceed = await checkUnsavedChanges();
+    if (proceed) {
+      await importWorkspaceBundle(file);
+    } else {
+      inputBundleFile.value = '';
+    }
   }
 }
 
 async function handleFileDrop(e) {
-  // If dropping on viewport, pdf-viewer will handle it.
-  // We handle global drops of .pdfmd or .zip here.
   const files = e.dataTransfer.files;
   if (files.length > 0) {
     const file = files[0];
-    if (file.name.endsWith('.pdfmd') || file.name.endsWith('.zip')) {
+    if (file.name.endsWith('.pdfmd') || file.name.endsWith('.zip') || file.type === 'application/pdf') {
       e.preventDefault();
-      await importWorkspaceBundle(file);
-    } else if (file.type === 'application/pdf') {
-      e.preventDefault();
-      await loadPdfFileObject(file);
+      await handleDroppedFile(file);
     }
   }
 }

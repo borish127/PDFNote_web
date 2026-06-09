@@ -8,7 +8,7 @@ let pdfDoc = null;
 let pdfFilename = '';
 let numPages = 0;
 let currentPage = 1;
-let currentZoom = 1.0;
+let currentZoom = 'page-fit';
 let activeTool = 'cursor'; // 'cursor', 'highlight', 'underline', 'draw', 'text', 'signature', 'eraser'
 let markupData = {}; // keyed by 0-based page index, e.g. { "0": [shapes], "1": [...] }
 let pageRatios = {}; // aspect ratios of pages keyed by 0-based index
@@ -16,10 +16,12 @@ let pageRatios = {}; // aspect ratios of pages keyed by 0-based index
 // Callback to trigger notes update in main app
 let onPageChangeCallback = null;
 let onMarkupChangeCallback = null;
+let onFileDropCallback = null;
 
 // Intersection Observer for Virtualization and Dominant Page Detection
 let intersectionObserver = null;
 const renderedPages = new Set(); // Set of 0-based page indexes currently rendered
+const intersectingPages = new Set(); // Set of 0-based page indexes currently intersecting the viewport
 let isProgrammaticScrolling = false;
 let programmaticScrollTimeout = null;
 
@@ -44,9 +46,10 @@ const toolButtons = {
 };
 
 // Initialize listeners
-export function initPdfViewer({ onPageChange, onMarkupChange }) {
+export function initPdfViewer({ onPageChange, onMarkupChange, onFileDrop }) {
   onPageChangeCallback = onPageChange;
   onMarkupChangeCallback = onMarkupChange;
+  onFileDropCallback = onFileDrop;
 
   // Zoom changes
   zoomSelect.addEventListener('change', (e) => {
@@ -102,12 +105,30 @@ export function initPdfViewer({ onPageChange, onMarkupChange }) {
   pdfViewport.addEventListener('drop', async (e) => {
     e.preventDefault();
     const files = e.dataTransfer.files;
-    if (files.length > 0 && files[0].type === 'application/pdf') {
-      await loadPdfFile(files[0]);
+    if (files.length > 0 && onFileDropCallback) {
+      onFileDropCallback(files[0]);
     }
   });
 
-  // Keyboard Arrow Page Navigation
+  // Safety reset to prevent window/document scrolling
+  const lockDocumentScroll = () => {
+    if (window.scrollY !== 0 || window.scrollX !== 0) {
+      window.scrollTo(0, 0);
+    }
+    if (document.documentElement.scrollTop !== 0 || document.documentElement.scrollLeft !== 0) {
+      document.documentElement.scrollTop = 0;
+      document.documentElement.scrollLeft = 0;
+    }
+    if (document.body.scrollTop !== 0 || document.body.scrollLeft !== 0) {
+      document.body.scrollTop = 0;
+      document.body.scrollLeft = 0;
+    }
+  };
+  window.addEventListener('scroll', lockDocumentScroll, { passive: true });
+  document.addEventListener('scroll', lockDocumentScroll, { passive: true });
+  document.body.addEventListener('scroll', lockDocumentScroll, { passive: true });
+
+  // Keyboard Page and Viewport Navigation
   window.addEventListener('keydown', (e) => {
     if (!pdfDoc) return;
     
@@ -132,6 +153,22 @@ export function initPdfViewer({ onPageChange, onMarkupChange }) {
       if (currentPage > 1) {
         scrollToPage(currentPage - 1);
       }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      pdfViewport.scrollBy({ top: 50, behavior: 'auto' });
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      pdfViewport.scrollBy({ top: -50, behavior: 'auto' });
+    } else if (e.key === ' ' || e.key === 'Spacebar') { // Space
+      e.preventDefault();
+      const scrollAmount = pdfViewport.clientHeight * 0.8;
+      pdfViewport.scrollBy({ top: e.shiftKey ? -scrollAmount : scrollAmount, behavior: 'smooth' });
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      pdfViewport.scrollTo({ top: 0, behavior: 'smooth' });
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      pdfViewport.scrollTo({ top: pdfViewport.scrollHeight, behavior: 'smooth' });
     }
   });
 
@@ -143,6 +180,29 @@ export function initPdfViewer({ onPageChange, onMarkupChange }) {
       programmaticScrollTimeout = null;
     }
   });
+
+  // Resize observer to handle viewport size changes for responsive zooming
+  let lastViewportWidth = pdfViewport.clientWidth;
+  let lastViewportHeight = pdfViewport.clientHeight;
+  let resizeTimeout = null;
+  const resizeObserver = new ResizeObserver((entries) => {
+    if (currentZoom !== 'auto' && currentZoom !== 'page-fit') return;
+    
+    const currentWidth = pdfViewport.clientWidth;
+    const currentHeight = pdfViewport.clientHeight;
+    
+    // Only trigger if size actually changed (ignoring minor 1-2px scrollbar toggles to be safe, e.g. > 5px change)
+    if (Math.abs(currentWidth - lastViewportWidth) > 5 || Math.abs(currentHeight - lastViewportHeight) > 5) {
+      lastViewportWidth = currentWidth;
+      lastViewportHeight = currentHeight;
+      
+      if (resizeTimeout) clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        rerenderAll();
+      }, 150);
+    }
+  });
+  resizeObserver.observe(pdfViewport);
 }
 
 // Set active tool
@@ -194,12 +254,16 @@ export function getMarkupData() {
 
 // Scroll to page (1-based)
 export function scrollToPage(pageNum) {
+  if (pageNum < 1 || pageNum > numPages || isNaN(pageNum)) return;
   const container = document.getElementById(`page-container-p${pageNum - 1}`);
   if (container) {
     isProgrammaticScrolling = true;
     if (programmaticScrollTimeout) clearTimeout(programmaticScrollTimeout);
 
-    container.scrollIntoView({ behavior: 'smooth' });
+    // Calculate scroll offset relative to pdfViewport to prevent document-level scrolling
+    const maxScrollTop = pdfViewport.scrollHeight - pdfViewport.clientHeight;
+    const targetScrollTop = Math.max(0, Math.min(maxScrollTop, container.offsetTop - (pdfViewport.clientHeight - container.clientHeight) / 2));
+    pdfViewport.scrollTo({ top: targetScrollTop, behavior: 'smooth' });
     
     currentPage = pageNum;
     pageCurrentInput.value = currentPage;
@@ -238,24 +302,25 @@ export async function loadPdfData(arrayBuffer) {
     pageCurrentInput.value = 1;
     pageCurrentInput.max = numPages;
 
+    isProgrammaticScrolling = true;
     renderedPages.clear();
+    intersectingPages.clear();
     pageRatios = {};
 
-    // Get page aspects and heights to build placeholder divs
+    // Create container wrappers synchronously first to guarantee exact ordering (0, 1, 2...)
     pdfViewer.innerHTML = '';
-    
+    for (let i = 0; i < numPages; i++) {
+      const pageContainer = document.createElement('div');
+      pageContainer.id = `page-container-p${i}`;
+      pageContainer.className = `pdf-page-container`;
+      pdfViewer.appendChild(pageContainer);
+    }
+
+    // Load page ratios asynchronously (one by one) to avoid concurrency gaps
     for (let i = 0; i < numPages; i++) {
       const page = await pdfDoc.getPage(i + 1);
       const viewport = page.getViewport({ scale: 1.0 });
       pageRatios[i] = viewport.width / viewport.height;
-
-      // Create container wrapper
-      const pageContainer = document.createElement('div');
-      pageContainer.id = `page-container-p${i}`;
-      pageContainer.className = `pdf-page-container`;
-      
-      // We will set height dynamically in setupObserver
-      pdfViewer.appendChild(pageContainer);
     }
 
     // Set outline
@@ -268,6 +333,11 @@ export async function loadPdfData(arrayBuffer) {
     setupObserver();
 
     if (onPageChangeCallback) onPageChangeCallback(0);
+
+    // Release programmatic scroll flag after a short delay for DOM reflow
+    setTimeout(() => {
+      isProgrammaticScrolling = false;
+    }, 500);
     return { name: pdfFilename, pagesCount: numPages };
   } catch (error) {
     console.error('Error loading PDF:', error);
@@ -302,22 +372,30 @@ function rerenderAll() {
 // Get page dimensions at current zoom
 function getPageDimensions(pIdx) {
   const ratio = pageRatios[pIdx] || 0.75;
-  const viewportWidth = pdfViewport.clientWidth - 48; // padding
+  const baseWidth = 612;
+  const baseHeight = baseWidth / ratio;
   
   let scale = 1.0;
   if (currentZoom === 'auto') {
     // Fits width
-    scale = viewportWidth / 612; // 612 is standard PDF width point
+    const vw = Math.max(200, pdfViewport.clientWidth - 48);
+    scale = vw / baseWidth;
     if (scale > 2.0) scale = 2.0; // limit auto zoom
   } else if (currentZoom === 'page-fit') {
-    // Fits height of viewport
-    scale = (pdfViewport.clientHeight - 48) / 792;
+    // Fits both width and height of viewport
+    const vw = Math.max(200, pdfViewport.clientWidth - 48);
+    const vh = Math.max(200, pdfViewport.clientHeight - 48);
+    const scaleToFitWidth = vw / baseWidth;
+    const scaleToFitHeight = vh / baseHeight;
+    scale = Math.min(scaleToFitWidth, scaleToFitHeight);
   } else {
     scale = currentZoom;
   }
 
-  const baseWidth = 612;
-  const baseHeight = baseWidth / ratio;
+  // Guard against invalid scale values
+  if (isNaN(scale) || scale <= 0) {
+    scale = 1.0;
+  }
   
   return {
     width: Math.round(baseWidth * scale),
@@ -354,17 +432,19 @@ function setupObserver() {
   intersectionObserver = new IntersectionObserver((entries) => {
     entries.forEach(entry => {
       const pIdx = parseInt(entry.target.id.replace('page-container-p', ''));
-      
-      if (entry.isIntersecting) {
-        // Render this page + pre-render neighbor pages
-        renderPageWindow(pIdx);
-
-        // Dominant Page Detection (>50% visible)
-        if (!isProgrammaticScrolling && entry.intersectionRatio > 0.5) {
-          updateCurrentPage(pIdx + 1);
+      if (!isNaN(pIdx)) {
+        if (entry.isIntersecting) {
+          intersectingPages.add(pIdx);
+          // Render this page + pre-render neighbor pages
+          renderPageWindow(pIdx);
+        } else {
+          intersectingPages.delete(pIdx);
         }
       }
     });
+
+    // Dominant Page Detection
+    updateDominantPage();
   }, {
     root: pdfViewport,
     threshold: [0.1, 0.25, 0.5, 0.75, 0.9]
@@ -406,6 +486,7 @@ function updateActiveStates(pageNum) {
 
 // Keep page tracker updated
 function updateCurrentPage(pageNum) {
+  if (pageNum < 1 || pageNum > numPages || isNaN(pageNum)) return;
   if (currentPage !== pageNum) {
     currentPage = pageNum;
     pageCurrentInput.value = currentPage;
@@ -416,6 +497,47 @@ function updateCurrentPage(pageNum) {
     if (onPageChangeCallback) {
       onPageChangeCallback(pageNum - 1);
     }
+
+    // Clean up pages that are far away (e.g. > 10 pages away) to conserve memory
+    const farPages = [];
+    renderedPages.forEach(pIdx => {
+      if (Math.abs(pIdx - (pageNum - 1)) > 10) {
+        farPages.push(pIdx);
+      }
+    });
+    farPages.forEach(pIdx => dropPage(pIdx));
+  }
+}
+
+// Calculate the dominant page currently visible in the viewport
+function updateDominantPage() {
+  if (isProgrammaticScrolling || intersectingPages.size === 0) return;
+
+  let maxVisibleHeight = 0;
+  let dominantPage = currentPage;
+  const viewportRect = pdfViewport.getBoundingClientRect();
+
+  // Sort intersecting pages numerically to ensure we process them in top-to-bottom order (0, 1, 2, 3...)
+  const sortedPages = Array.from(intersectingPages).sort((a, b) => a - b);
+
+  sortedPages.forEach(pIdx => {
+    if (isNaN(pIdx) || pIdx < 0 || pIdx >= numPages) return;
+    const container = document.getElementById(`page-container-p${pIdx}`);
+    if (!container) return;
+
+    const rect = container.getBoundingClientRect();
+    const visibleTop = Math.max(rect.top, viewportRect.top);
+    const visibleBottom = Math.min(rect.bottom, viewportRect.bottom);
+    const visibleHeight = Math.max(0, visibleBottom - visibleTop);
+
+    if (visibleHeight > maxVisibleHeight) {
+      maxVisibleHeight = visibleHeight;
+      dominantPage = pIdx + 1;
+    }
+  });
+
+  if (dominantPage !== currentPage) {
+    updateCurrentPage(dominantPage);
   }
 }
 
@@ -432,15 +554,9 @@ function renderPageWindow(centerIdx) {
       renderPage(pIdx);
     }
   });
-
-  // Drop pages out of rendering window
-  renderedPages.forEach(pIdx => {
-    if (!pagesToRender.has(pIdx)) {
-      dropPage(pIdx);
-    }
-  });
 }
 
+// Render a single PDF page
 // Render a single PDF page
 async function renderPage(pIdx) {
   if (!pdfDoc || renderedPages.has(pIdx)) return;
@@ -450,13 +566,13 @@ async function renderPage(pIdx) {
   if (!container) return;
 
   const { width, height, scale } = getPageDimensions(pIdx);
-  
-  // Clear container
-  container.innerHTML = '';
 
   try {
     const page = await pdfDoc.getPage(pIdx + 1);
     const viewport = page.getViewport({ scale: scale * 1.5 }); // High-quality canvas render
+
+    // Create a temporary document fragment to compile elements in memory
+    const fragment = document.createDocumentFragment();
 
     // 1. Create main page canvas
     const canvas = document.createElement('canvas');
@@ -465,7 +581,7 @@ async function renderPage(pIdx) {
     canvas.height = viewport.height;
     canvas.style.width = '100%';
     canvas.style.height = '100%';
-    container.appendChild(canvas);
+    fragment.appendChild(canvas);
 
     // Render PDF onto canvas
     const ctx = canvas.getContext('2d');
@@ -477,31 +593,22 @@ async function renderPage(pIdx) {
 
     // 2. Build text selection layer
     const textLayerDiv = document.createElement('div');
-    textLayerDiv.className = 'text-layer';
+    textLayerDiv.className = 'textLayer';
     textLayerDiv.style.width = '100%';
     textLayerDiv.style.height = '100%';
-    container.appendChild(textLayerDiv);
+    textLayerDiv.style.setProperty('--scale-factor', scale);
+    textLayerDiv.style.setProperty('--total-scale-factor', scale);
+    fragment.appendChild(textLayerDiv);
     
-    // Fetch text and render custom spans
     const textContent = await page.getTextContent();
     const textViewport = page.getViewport({ scale: scale }); // Standard match scale
     
-    textContent.items.forEach(item => {
-      if (!item.str.trim()) return;
-      const span = document.createElement('span');
-      span.textContent = item.str;
-      
-      // Convert standard PDF points to viewport CSS pixels
-      const [left, top] = textViewport.convertToViewportPoint(item.transform[4], item.transform[5]);
-      const fontHeight = Math.abs(item.transform[3]) * scale;
-      
-      span.style.left = `${left}px`;
-      span.style.top = `${top - fontHeight}px`; // Shift up by text height
-      span.style.fontSize = `${fontHeight}px`;
-      span.style.fontFamily = item.fontName || 'sans-serif';
-      
-      textLayerDiv.appendChild(span);
+    const textLayer = new pdfjsLib.TextLayer({
+      textContentSource: textContent,
+      container: textLayerDiv,
+      viewport: textViewport
     });
+    await textLayer.render();
 
     // 3. Create drawings and markup canvas overlay
     const overlayCanvas = document.createElement('canvas');
@@ -512,13 +619,17 @@ async function renderPage(pIdx) {
     overlayCanvas.style.width = '100%';
     overlayCanvas.style.height = '100%';
     overlayCanvas.style.pointerEvents = activeTool === 'cursor' ? 'none' : 'auto';
-    container.appendChild(overlayCanvas);
+    fragment.appendChild(overlayCanvas);
 
     // Bind drawing mouse listeners to overlay canvas
     bindDrawingListeners(pIdx, overlayCanvas);
 
     // Draw existing annotations
     drawPageMarkup(pIdx, overlayCanvas);
+
+    // Swap contents: clear placeholder and append new elements instantly
+    container.innerHTML = '';
+    container.appendChild(fragment);
 
   } catch (error) {
     console.error('Error rendering page:', pIdx + 1, error);

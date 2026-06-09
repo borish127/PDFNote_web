@@ -4,7 +4,53 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AI PDF & Page Markdown Notebook</title>
+    
+    <!-- Primary SEO Metadata -->
+    <title>PDFNote Web - AI PDF &amp; Page Markdown Notebook</title>
+    <meta name="description" content="PDFNote Web is a secure, 100% client-side, synchronized PDF viewer and page-by-page Markdown notebook. Easily read, annotate, draw, and take structured page-linked notes." />
+    <meta name="keywords" content="pdf notebook, markdown notes, pdf editor, pdf viewer, draw on pdf, local sync, client-side, codemirror, web app, pdf annotation, study tools" />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://borish127.github.io/PDFNote_web/" />
+    
+    <!-- Google Search Console Verification -->
+    <meta name="google-site-verification" content="15qvqhuJ5HEHBLOo4qWFQz5urpe-9W_KBReNpsyk9SY" />
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://borish127.github.io/PDFNote_web/" />
+    <meta property="og:title" content="PDFNote Web - AI PDF &amp; Page Markdown Notebook" />
+    <meta property="og:description" content="Synchronized client-side PDF viewer and page-by-page Markdown notebook. Annotate PDFs, draw, take markdown notes, and sync to local folders." />
+    <meta property="og:image" content="https://borish127.github.io/PDFNote_web/screenshots/screenshot-main.png" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:url" content="https://borish127.github.io/PDFNote_web/" />
+    <meta name="twitter:title" content="PDFNote Web - AI PDF &amp; Page Markdown Notebook" />
+    <meta name="twitter:description" content="Synchronized client-side PDF viewer and page-by-page Markdown notebook. Annotate PDFs, draw, take markdown notes, and sync to local folders." />
+    <meta name="twitter:image" content="https://borish127.github.io/PDFNote_web/screenshots/screenshot-main.png" />
+
+    <!-- JSON-LD Structured Data Schema for Google Rich Snippets -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "PDFNote Web",
+      "url": "https://borish127.github.io/PDFNote_web/",
+      "operatingSystem": "All",
+      "applicationCategory": "ProductivityApplication",
+      "description": "A synchronized PDF viewer and page-by-page Markdown notebook. Draw directly on PDFs, highlight text, and take markdown notes synchronized to each page.",
+      "offers": {
+        "@type": "Offer",
+        "price": "0.00",
+        "priceCurrency": "USD"
+      },
+      "creator": {
+        "@type": "Person",
+        "name": "Borish127"
+      }
+    }
+    </script>
+
     <!-- Google Fonts & Material Symbols -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -13,6 +59,8 @@
   </head>
   <body>
     <div id="app" class="app-container">
+      <!-- Semantic Heading for SEO & Screen Reader Accessibility -->
+      <h1 class="visually-hidden">PDFNote Web - AI PDF &amp; Page Markdown Notebook</h1>
       
       <!-- Top Bar: Adaptive Utility Toolbar -->
       <header class="top-bar">
@@ -63,12 +111,12 @@
             <select id="zoom-select" class="m3-select" title="Zoom Level">
               <option value="0.5">50%</option>
               <option value="0.75">75%</option>
-              <option value="1.0" selected>100%</option>
+              <option value="1.0">100%</option>
               <option value="1.25">125%</option>
               <option value="1.5">150%</option>
               <option value="2.0">200%</option>
               <option value="auto">Auto</option>
-              <option value="page-fit">Fit Page</option>
+              <option value="page-fit" selected>Fit Page</option>
             </select>
             <button id="zoom-in" class="m3-icon-btn" title="Zoom In">
               <span class="material-symbols-outlined">zoom_in</span>
@@ -124,7 +172,7 @@
       <div class="workspace-layout">
 
         <!-- Left Panel: Collapsible Document Map -->
-        <aside id="left-panel" class="left-panel">
+        <aside id="left-panel" class="left-panel collapsed">
           <div class="panel-header">
             <div class="m3-tabs">
               <button id="tab-outline" class="m3-tab">Outline</button>
@@ -145,7 +193,7 @@
         </aside>
 
         <!-- Sidebar toggler for collapsed left panel -->
-        <button id="btn-expand-left" class="m3-expand-sidebar-btn left-side hidden" title="Expand Document Map">
+        <button id="btn-expand-left" class="m3-expand-sidebar-btn left-side" title="Expand Document Map">
           <span class="material-symbols-outlined">menu_open</span>
         </button>
 
@@ -207,7 +255,7 @@
               </div>
 
               <!-- Floating Action Button (FAB) -->
-              <button id="fab-toggle-mode" class="m3-fab" title="Switch to Edit Mode">
+              <button id="fab-toggle-mode" class="m3-fab" title="Switch to Edit Mode (Ctrl + E)">
                 <span class="material-symbols-outlined fab-icon">edit</span>
               </button>
 
@@ -301,6 +349,7 @@
           <h3>📝 Markdown Notebook Editor</h3>
           <ul>
             <li>Take markdown notes for the active page on the right workspace panel.</li>
+            <li><strong>Toggle Edit/Read Mode</strong>: Toggle between Markdown notes editing and viewing modes using the floating action button (FAB) or the keyboard shortcut <strong>Ctrl + E</strong> (or <strong>Cmd + E</strong> on Mac).</li>
             <li>Use format accelerators (Bold, Italic, Code block, List, Link, Image, Mermaid diagrams) in the markdown bar to quickly write rich notes.</li>
             <li>Images and diagrams are click-to-expand. Clicking them inside notes view mode opens a full-screen blurred lightbox.</li>
           </ul>
