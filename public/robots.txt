@@ -2,4 +2,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://borish127.github.io/PDFNote_web/sitemap.xml
+Sitemap: https://pdfnote.borish127.com/sitemap.xml

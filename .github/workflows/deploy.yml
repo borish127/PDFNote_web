@@ -39,6 +39,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Create CNAME
+        run: echo "pdfnote.borish127.com" > ./dist/CNAME
+
       - name: Setup Pages
         uses: actions/configure-pages@v4
 
