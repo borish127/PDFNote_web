@@ -1,19 +1,18 @@
 import './style.css';
-import JSZip from 'jszip';
 import {
   initPdfViewer,
   loadPdfData,
-  loadPdfFile,
   scrollToPage,
   getMarkupData,
-  setMarkupData
+  setMarkupData,
+  getNumPages,
+  showViewerStatus
 } from './pdf-viewer.js';
 import {
   initEditor,
   setActivePage,
   setEditorContent,
   getEditorContent,
-  setMode,
   renderOrphanedNotes,
   resetAssetsCounters
 } from './editor.js';
@@ -34,15 +33,21 @@ import {
   clearRecoveryJournal,
   saveDirHandle,
   loadDirHandle,
-  clearDirHandle,
   writeToLocalFolder,
+  readFromLocalFolder,
+  verifyPermission,
   dataURLtoBlob
 } from './storage.js';
+
+// Conditionally polyfill Invoker Commands (command / commandfor) only where missing
+if (!('commandForElement' in HTMLButtonElement.prototype)) {
+  import('invokers-polyfill');
+}
 
 // Application State
 let activePdfHash = '';
 let activePdfName = '';
-let activePdfBytes = null;
+let activePdfBytes = null; // Uint8Array
 let activePageIdx = 0;
 let notesData = { meta: {}, pages: {} };
 let assetsRegistry = {}; // { "img_p1_0.png": dataURL, ... }
@@ -50,15 +55,16 @@ let activeDirHandle = null;
 
 // Debouncing auto-save
 let autoSaveTimer = null;
-let saveState = 'saved'; // 'saved', 'unsaved', 'saving'
+let saveState = 'saved'; // 'saved', 'cache-only', 'unsaved', 'saving', 'permission-needed'
 
 // DOM Elements
-
 const btnOpenPdf = document.getElementById('btn-open-pdf');
 const btnOpenBundle = document.getElementById('btn-open-bundle');
 const btnLinkFolder = document.getElementById('btn-link-folder');
 const btnSaveWorkspace = document.getElementById('btn-save-workspace');
 const btnThemeToggle = document.getElementById('theme-toggle');
+const syncStatusBadge = document.getElementById('sync-status-badge');
+const srStatus = document.getElementById('sr-status');
 const inputPdfFile = document.getElementById('input-pdf-file');
 const inputBundleFile = document.getElementById('input-bundle-file');
 const restoreBanner = document.getElementById('restore-banner');
@@ -67,29 +73,109 @@ const btnRestoreConfirm = document.getElementById('btn-restore-confirm');
 const btnRestoreDiscard = document.getElementById('btn-restore-discard');
 const btnPlaceholderOpen = document.getElementById('btn-placeholder-open');
 const previewContainerInner = document.getElementById('preview-container').querySelector('.preview-scrollable');
-const lightboxOverlay = document.getElementById('image-lightbox');
+
+const lightboxDialog = document.getElementById('image-lightbox');
 const lightboxImage = document.getElementById('lightbox-image');
-const lightboxClose = document.getElementById('lightbox-close');
 const lightboxSvgContainer = document.getElementById('lightbox-svg-container');
 
-const btnHelp = document.getElementById('btn-help');
-const btnAbout = document.getElementById('btn-about');
-const helpDialog = document.getElementById('help-dialog');
-const aboutDialog = document.getElementById('about-dialog');
-const helpDialogClose = document.getElementById('help-dialog-close');
-const aboutDialogClose = document.getElementById('about-dialog-close');
+const confirmDialog = document.getElementById('confirm-dialog');
+const confirmDialogTitle = document.getElementById('confirm-dialog-title');
+const confirmDialogMessage = document.getElementById('confirm-dialog-message');
+const confirmDialogCancel = document.getElementById('confirm-dialog-cancel');
+const confirmDialogAlt = document.getElementById('confirm-dialog-alt');
+const confirmDialogOk = document.getElementById('confirm-dialog-ok');
+const confirmDialogClose = document.getElementById('confirm-dialog-close');
+
+function announceStatus(message) {
+  if (srStatus) {
+    srStatus.textContent = message;
+  }
+}
+
+function showConfirmDialog({
+  title = 'Confirm',
+  message = '',
+  confirmLabel = 'OK',
+  altLabel = null,
+  cancelLabel = 'Cancel'
+}) {
+  return new Promise((resolve) => {
+    confirmDialogTitle.textContent = title;
+    confirmDialogMessage.textContent = message;
+    confirmDialogOk.textContent = confirmLabel;
+
+    if (cancelLabel) {
+      confirmDialogCancel.hidden = false;
+      confirmDialogCancel.textContent = cancelLabel;
+    } else {
+      confirmDialogCancel.hidden = true;
+    }
+
+    if (altLabel) {
+      confirmDialogAlt.hidden = false;
+      confirmDialogAlt.textContent = altLabel;
+    } else {
+      confirmDialogAlt.hidden = true;
+    }
+
+    const onClose = () => {
+      const result = confirmDialog.returnValue || 'cancel';
+      confirmDialog.returnValue = '';
+      confirmDialog.removeEventListener('close', onClose);
+      resolve(result);
+    };
+
+    confirmDialog.addEventListener('close', onClose);
+    confirmDialog.showModal();
+  });
+}
+
+async function showAlertDialog(title, message) {
+  await showConfirmDialog({
+    title,
+    message,
+    confirmLabel: 'OK',
+    cancelLabel: null
+  });
+}
+
+function setupDialogClosedByFallback() {
+  if ('closedBy' in HTMLDialogElement.prototype) return;
+
+  const outside = (e, dialog) => {
+    const r = dialog.getBoundingClientRect();
+    return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+  };
+
+  for (const dialog of document.querySelectorAll('dialog[closedby="any"]')) {
+    let pressedOutside = false;
+    dialog.addEventListener('pointerdown', (e) => {
+      pressedOutside = outside(e, dialog);
+    });
+    dialog.addEventListener('pointerup', (e) => {
+      if (pressedOutside && outside(e, dialog)) {
+        dialog.close();
+      }
+    });
+  }
+}
 
 // --- INITIALIZATION ---
 
 document.addEventListener('DOMContentLoaded', async () => {
-  // Initialize IndexedDB
   await initDb();
+  setupDialogClosedByFallback();
 
-  // Initialize Sub-systems
+  confirmDialogClose?.addEventListener('click', () => {
+    confirmDialog.close('cancel');
+  });
+
   initPdfViewer({
     onPageChange: handlePageChange,
     onMarkupChange: handleMarkupChange,
-    onFileDrop: handleDroppedFile
+    onFileDrop: handleDroppedFile,
+    onNotify: announceStatus,
+    onConfirm: async (opts) => (await showConfirmDialog(opts)) === 'confirm'
   });
 
   initEditor({
@@ -99,101 +185,105 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   initMarkdownRenderer();
 
-  // Load Saved Directory Handle (if exists)
   try {
     const savedHandle = await loadDirHandle();
     if (savedHandle) {
       activeDirHandle = savedHandle;
+      const granted = await verifyPermission(activeDirHandle, true, false);
+      if (!granted) {
+        saveState = 'permission-needed';
+      }
       updateSyncStatusBadge();
     }
   } catch (err) {
     console.error('Failed loading saved directory handle:', err);
   }
 
-  // Setup Theme
   initTheme();
-
-  // Check for recovery journal on start (if no PDF loaded yet, check general)
   await checkForRecoveryJournals();
 
-  // Setup main click actions
   btnOpenPdf.addEventListener('click', () => inputPdfFile.click());
   btnPlaceholderOpen.addEventListener('click', () => inputPdfFile.click());
   btnOpenBundle.addEventListener('click', () => inputBundleFile.click());
-  
+
   inputPdfFile.addEventListener('change', handlePdfFileSelect);
   inputBundleFile.addEventListener('change', handleBundleFileSelect);
 
   btnLinkFolder.addEventListener('click', handleLinkFolder);
   btnSaveWorkspace.addEventListener('click', exportWorkspaceBundle);
 
-  // Drag & drop bundle/PDF on the whole app
+  syncStatusBadge?.addEventListener('click', async () => {
+    if (saveState === 'permission-needed' && activeDirHandle) {
+      const granted = await verifyPermission(activeDirHandle, true, true);
+      if (granted) {
+        await triggerSave(true);
+        announceStatus('Local folder sync reconnected.');
+      }
+    } else if (activePdfHash) {
+      await triggerSave(true);
+    }
+  });
+
+  // Drag & drop bundle/PDF on the whole window (only if not handled by pdfViewport)
   window.addEventListener('dragover', (e) => e.preventDefault());
   window.addEventListener('drop', handleFileDrop);
 
+  // Warn before closing tab if there are pending unpersisted edits
+  window.addEventListener('beforeunload', (e) => {
+    if (saveState === 'unsaved' || saveState === 'saving') {
+      e.preventDefault();
+      e.returnValue = '';
+    }
+  });
+
   // Lightbox Image & Diagram Viewer Events
-  previewContainerInner.addEventListener('click', (e) => {
-    if (e.target.tagName === 'IMG') {
-      openLightboxImage(e.target.src, e.target.alt);
+  const activateMediaTarget = (target) => {
+    if (target.tagName === 'IMG' && target.src) {
+      openLightboxImage(target.src, target.alt);
       return;
     }
 
-    const mermaidContainer = e.target.closest('.mermaid-svg-container');
+    const mermaidContainer = target.closest('.mermaid-svg-container');
     if (mermaidContainer) {
       const svgElement = mermaidContainer.querySelector('svg');
       if (svgElement) {
         openLightboxSvg(svgElement);
       }
     }
-  });
+  };
 
-  lightboxOverlay.addEventListener('click', (e) => {
-    if (e.target === lightboxOverlay || e.target.classList.contains('lightbox-content')) {
-      closeLightbox();
+  previewContainerInner.addEventListener('click', (e) => activateMediaTarget(e.target));
+  previewContainerInner.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      const mermaidContainer = e.target.closest('.mermaid-svg-container');
+      if (mermaidContainer) {
+        e.preventDefault();
+        activateMediaTarget(mermaidContainer);
+      }
     }
   });
 
-  lightboxClose.addEventListener('click', closeLightbox);
-
-  // Help & About Dialogs Events
-  btnHelp.addEventListener('click', () => {
-    helpDialog.showModal();
-  });
-  
-  btnAbout.addEventListener('click', () => {
-    aboutDialog.showModal();
-  });
-
-  helpDialogClose.addEventListener('click', () => {
-    helpDialog.close();
-  });
-
-  aboutDialogClose.addEventListener('click', () => {
-    aboutDialog.close();
-  });
-
-  // Clicking outside dialog box closes it
-  helpDialog.addEventListener('click', (e) => {
-    if (e.target === helpDialog) helpDialog.close();
-  });
-
-  aboutDialog.addEventListener('click', (e) => {
-    if (e.target === aboutDialog) aboutDialog.close();
+  lightboxDialog.addEventListener('close', () => {
+    lightboxImage.src = '';
+    lightboxImage.hidden = true;
+    lightboxSvgContainer.replaceChildren();
+    lightboxSvgContainer.hidden = true;
   });
 });
 
-// --- LIGHTBOX IMAGE / DIAGRAM VIEWER ---
+// --- LIGHTBOX IMAGE / DIAGRAM VIEWER (Native <dialog>) ---
 
 function openLightboxImage(src, alt) {
+  lightboxSvgContainer.replaceChildren();
+  lightboxSvgContainer.hidden = true;
+
   lightboxImage.src = src;
   lightboxImage.alt = alt || 'Expanded View';
-  lightboxImage.style.display = 'block';
-  lightboxSvgContainer.style.display = 'none';
-  lightboxSvgContainer.innerHTML = '';
+  lightboxImage.hidden = false;
 
-  lightboxOverlay.classList.remove('hidden');
-  lightboxOverlay.setAttribute('aria-hidden', 'false');
-  document.addEventListener('keydown', handleLightboxKeyDown);
+  if (!lightboxDialog.open) {
+    lightboxDialog.showModal();
+  }
 }
 
 function openLightboxSvg(svgElement) {
@@ -205,87 +295,144 @@ function openLightboxSvg(svgElement) {
   clonedSvg.style.maxWidth = '100%';
   clonedSvg.style.maxHeight = '100%';
 
-  lightboxSvgContainer.innerHTML = '';
-  lightboxSvgContainer.appendChild(clonedSvg);
+  lightboxImage.src = '';
+  lightboxImage.hidden = true;
 
-  lightboxImage.style.display = 'none';
-  lightboxSvgContainer.style.display = 'flex';
+  lightboxSvgContainer.replaceChildren(clonedSvg);
+  lightboxSvgContainer.hidden = false;
 
-  lightboxOverlay.classList.remove('hidden');
-  lightboxOverlay.setAttribute('aria-hidden', 'false');
-  document.addEventListener('keydown', handleLightboxKeyDown);
-}
-
-function closeLightbox() {
-  lightboxOverlay.classList.add('hidden');
-  lightboxOverlay.setAttribute('aria-hidden', 'true');
-  document.removeEventListener('keydown', handleLightboxKeyDown);
-  setTimeout(() => {
-    if (lightboxOverlay.classList.contains('hidden')) {
-      lightboxImage.src = '';
-      lightboxSvgContainer.innerHTML = '';
-    }
-  }, 250);
-}
-
-function handleLightboxKeyDown(e) {
-  if (e.key === 'Escape') {
-    closeLightbox();
+  if (!lightboxDialog.open) {
+    lightboxDialog.showModal();
   }
 }
 
-// --- THEME MANAGEMENT ---
+// --- THEME MANAGEMENT (<meta name="color-scheme"> + light-dark()) ---
 
 function initTheme() {
-  const savedTheme = localStorage.getItem('theme');
-  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-  
-  if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
-    document.body.classList.add('dark-theme');
-    btnThemeToggle.querySelector('span').textContent = 'light_mode';
-    updateMermaidTheme(true);
-  } else {
-    document.body.classList.remove('dark-theme');
-    btnThemeToggle.querySelector('span').textContent = 'dark_mode';
-    updateMermaidTheme(false);
+  const schemeMeta = document.querySelector('meta[name="color-scheme"]');
+  const darkMedia = window.matchMedia('(prefers-color-scheme: dark)');
+
+  // Migrate legacy 'theme' key if present
+  try {
+    const legacy = localStorage.getItem('theme');
+    if (legacy && !localStorage.getItem('color-scheme')) {
+      if (legacy === 'dark' || legacy === 'light') {
+        localStorage.setItem('color-scheme', legacy);
+      }
+      localStorage.removeItem('theme');
+    }
+  } catch {
+    // Ignore storage restriction
   }
 
+  const getStoredScheme = () => {
+    try {
+      const val = localStorage.getItem('color-scheme');
+      return val === 'light' || val === 'dark' ? val : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const applyResolvedTheme = (schemeOverride = getStoredScheme()) => {
+    const metaVal = schemeOverride ?? 'light dark';
+    if (schemeMeta) {
+      schemeMeta.content = metaVal;
+    }
+    const isDark = schemeOverride ? schemeOverride === 'dark' : darkMedia.matches;
+    document.body.classList.toggle('dark-theme', isDark);
+
+    const iconSpan = btnThemeToggle.querySelector('span');
+    if (iconSpan) {
+      iconSpan.textContent = isDark ? 'light_mode' : 'dark_mode';
+    }
+    btnThemeToggle.setAttribute(
+      'aria-label',
+      isDark ? 'Switch to light color theme' : 'Switch to dark color theme'
+    );
+    updateMermaidTheme(isDark).then(() => {
+      if (activePdfHash) updateNotesPreview();
+    });
+  };
+
+  applyResolvedTheme();
+
   btnThemeToggle.addEventListener('click', () => {
-    const isDark = document.body.classList.toggle('dark-theme');
-    localStorage.setItem('theme', isDark ? 'dark' : 'light');
-    btnThemeToggle.querySelector('span').textContent = isDark ? 'light_mode' : 'dark_mode';
-    updateMermaidTheme(isDark);
-    
-    // Force rerender mermaid previews
-    updateNotesPreview();
+    const currentStored = getStoredScheme();
+    const currentlyDark = currentStored ? currentStored === 'dark' : darkMedia.matches;
+    const target = currentlyDark ? 'light' : 'dark';
+    const systemScheme = darkMedia.matches ? 'dark' : 'light';
+
+    let nextStored = null;
+    try {
+      if (target !== systemScheme) {
+        localStorage.setItem('color-scheme', target);
+        nextStored = target;
+      } else {
+        // Matches OS default again: remove override so system changes resume applying
+        localStorage.removeItem('color-scheme');
+        nextStored = null;
+      }
+    } catch {
+      nextStored = target;
+    }
+
+    applyResolvedTheme(nextStored);
+  });
+
+  darkMedia.addEventListener('change', () => {
+    if (!getStoredScheme()) {
+      applyResolvedTheme(null);
+    }
+  });
+
+  window.addEventListener('storage', (e) => {
+    if (e.key === 'color-scheme') {
+      applyResolvedTheme();
+    }
   });
 }
 
 // --- FILE HANDLERS ---
 
-// Check if there are unsaved changes and prompt the user to save, discard, or cancel
+function isPdfFile(file) {
+  return Boolean(file && (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')));
+}
+
+function isBundleFile(file) {
+  const lower = file?.name?.toLowerCase() || '';
+  return lower.endsWith('.pdfmd') || lower.endsWith('.zip');
+}
+
 async function checkUnsavedChanges() {
-  if (saveState === 'unsaved') {
-    const save = confirm("You have unsaved changes. Do you want to save your workspace bundle before loading a new document?");
-    if (save) {
+  if (saveState === 'unsaved' || saveState === 'cache-only') {
+    const choice = await showConfirmDialog({
+      title: 'Unsaved Workspace Changes',
+      message:
+        saveState === 'unsaved'
+          ? 'You have unsaved changes. Save a .pdfmd bundle before loading a new document?'
+          : 'Your latest edits are cached in browser storage only (not exported to a .pdfmd file). Save a bundle before switching?',
+      confirmLabel: 'Save Bundle',
+      altLabel: 'Discard & Continue',
+      cancelLabel: 'Cancel'
+    });
+
+    if (choice === 'confirm') {
       await exportWorkspaceBundle();
       return true;
-    } else {
-      const proceed = confirm("Are you sure you want to discard your unsaved changes and proceed?");
-      return proceed;
     }
+    return choice === 'discard';
   }
   return true;
 }
 
-// Handle both dropped PDFs and Workspace bundles (.pdfmd)
 async function handleDroppedFile(file) {
-  if (file.name.endsWith('.pdfmd') || file.name.endsWith('.zip')) {
+  if (isBundleFile(file)) {
     const proceed = await checkUnsavedChanges();
     if (proceed) {
       await importWorkspaceBundle(file);
     }
-  } else if (file.type === 'application/pdf') {
+  } else if (isPdfFile(file)) {
     const proceed = await checkUnsavedChanges();
     if (proceed) {
       await loadPdfFileObject(file);
@@ -294,75 +441,74 @@ async function handleDroppedFile(file) {
 }
 
 async function handlePdfFileSelect(e) {
-  const file = e.target.files[0];
+  const file = e.target.files?.[0];
+  inputPdfFile.value = '';
   if (file) {
     const proceed = await checkUnsavedChanges();
     if (proceed) {
       await loadPdfFileObject(file);
-    } else {
-      inputPdfFile.value = '';
     }
   }
 }
 
 async function handleBundleFileSelect(e) {
-  const file = e.target.files[0];
+  const file = e.target.files?.[0];
+  inputBundleFile.value = '';
   if (file) {
     const proceed = await checkUnsavedChanges();
     if (proceed) {
       await importWorkspaceBundle(file);
-    } else {
-      inputBundleFile.value = '';
     }
   }
 }
 
 async function handleFileDrop(e) {
-  const files = e.dataTransfer.files;
-  if (files.length > 0) {
+  const files = e.dataTransfer?.files;
+  if (files && files.length > 0) {
     const file = files[0];
-    if (file.name.endsWith('.pdfmd') || file.name.endsWith('.zip') || file.type === 'application/pdf') {
+    if (isBundleFile(file) || isPdfFile(file)) {
       e.preventDefault();
       await handleDroppedFile(file);
     }
   }
 }
 
-// Load a Raw PDF file and hash it
 async function loadPdfFileObject(file) {
   try {
-    const bytes = await file.arrayBuffer();
+    const rawBuffer = await file.arrayBuffer();
+    const bytes = new Uint8Array(rawBuffer).slice();
     const hash = await calculateSHA256(bytes);
-    
+
     activePdfBytes = bytes;
     activePdfHash = hash;
     activePdfName = file.name;
+    activePageIdx = 0;
+    setActivePage(0);
 
     await loadPdfData(bytes);
     await initializeWorkspace();
+    announceStatus(`Loaded ${file.name}`);
   } catch (err) {
     console.error('Failed loading PDF file:', err);
-    alert(`Failed loading PDF: ${err.message}`);
+    await showAlertDialog('PDF Load Error', `Failed loading PDF: ${err?.message || String(err)}`);
   }
 }
 
-// SHA-256 Hash generator using Native browser Crypto API
-async function calculateSHA256(arrayBuffer) {
-  const hashBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
+async function calculateSHA256(bytesOrBuffer) {
+  const hashBuffer = await crypto.subtle.digest('SHA-256', bytesOrBuffer);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 // --- WORKSPACE INITIALIZATION & PERSISTENCE ---
 
 async function initializeWorkspace() {
-  // Check for recovery journal first
   const journal = await loadRecoveryJournal(activePdfHash);
   if (journal) {
     restoreFilenameSpan.textContent = activePdfName;
+    restoreBanner.hidden = false;
     restoreBanner.classList.remove('hidden');
-    
-    // Bind banner actions
+
     btnRestoreConfirm.onclick = async () => {
       notesData = {
         meta: {
@@ -371,29 +517,26 @@ async function initializeWorkspace() {
           originalName: activePdfName,
           lastModified: journal.timestamp
         },
-        pages: journal.pages
+        pages: journal.pages || {}
       };
-      
-      // Load assets registry from main workspace cache since recovery doesn't duplicate heavy assets
+
       const cache = await loadWorkspaceFromCache(activePdfHash);
-      assetsRegistry = cache ? cache.assets : {};
-      
-      // Load markup
-      setMarkupData(journal.markup);
-      
+      assetsRegistry = cache ? cache.assets || {} : {};
+      setMarkupData(journal.markup || {});
+
       restoreBanner.classList.add('hidden');
+      restoreBanner.hidden = true;
       resetAssetsCounters(notesData);
-      
-      // Update editor
+      checkOrphanedNotes();
       loadPageNotes();
-      
-      // Formally save to finalize state
+
       await triggerSave(true);
     };
 
     btnRestoreDiscard.onclick = async () => {
       await clearRecoveryJournal(activePdfHash);
       restoreBanner.classList.add('hidden');
+      restoreBanner.hidden = true;
       await loadStandardWorkspace();
     };
   } else {
@@ -401,47 +544,65 @@ async function initializeWorkspace() {
   }
 }
 
-// Load workspace from IndexedDB standard cache
 async function loadStandardWorkspace() {
   const cache = await loadWorkspaceFromCache(activePdfHash);
-  const markup = await loadMarkupFromCache(activePdfHash);
-  
+  let markup = await loadMarkupFromCache(activePdfHash);
+
   if (cache) {
     notesData = {
       meta: cache.meta,
       pages: cache.pages || {}
     };
     assetsRegistry = cache.assets || {};
+  } else if (activeDirHandle) {
+    // Attempt reading existing notes JSON from linked local folder if no cache exists yet
+    const folderData = await readFromLocalFolder(activeDirHandle, activePdfName);
+    if (folderData && folderData.pages) {
+      notesData = {
+        meta: folderData.meta || {
+          version: '1.0.0',
+          pdfHash: activePdfHash,
+          originalName: activePdfName,
+          lastModified: new Date().toISOString()
+        },
+        pages: folderData.pages
+      };
+      assetsRegistry = folderData.assets || {};
+      if (folderData.markup) markup = folderData.markup;
+    } else {
+      notesData = createEmptyNotesMeta();
+      assetsRegistry = {};
+    }
   } else {
-    notesData = {
-      meta: {
-        version: '1.0.0',
-        pdfHash: activePdfHash,
-        originalName: activePdfName,
-        lastModified: new Date().toISOString()
-      },
-      pages: {}
-    };
+    notesData = createEmptyNotesMeta();
     assetsRegistry = {};
   }
 
   setMarkupData(markup || {});
   resetAssetsCounters(notesData);
-  
-  // Connect orphaned notes
   checkOrphanedNotes();
-
   loadPageNotes();
-  
-  saveState = 'saved';
+
+  saveState = activeDirHandle ? 'saved' : 'saved';
   updateSyncStatusBadge();
 }
 
-// Swaps page note states in editor and renders markdown
+function createEmptyNotesMeta() {
+  return {
+    meta: {
+      version: '1.0.0',
+      pdfHash: activePdfHash,
+      originalName: activePdfName,
+      lastModified: new Date().toISOString()
+    },
+    pages: {}
+  };
+}
+
 function loadPageNotes() {
   const pageData = notesData.pages[activePageIdx];
   const markdown = pageData ? pageData.markdown : '';
-  
+
   setEditorContent(markdown);
   updateNotesPreview();
 }
@@ -451,28 +612,22 @@ function updateNotesPreview() {
   renderMarkdown(markdown, assetsRegistry, previewContainerInner);
 }
 
-// --- CALLBACK HANDLERS (PDF Viewport & Editor events) ---
+// --- CALLBACK HANDLERS ---
 
 function handlePageChange(pageIdx) {
   if (activePageIdx === pageIdx) return;
 
-  // 1. Save notes of OLD page
   const oldMarkdown = getEditorContent();
   saveActivePageNotes(activePageIdx, oldMarkdown);
 
-  // 2. Set new active page index
   activePageIdx = pageIdx;
   setActivePage(pageIdx);
-
-  // 3. Load notes of NEW page
   loadPageNotes();
 }
 
 function handleNotesTextChange(text) {
   saveActivePageNotes(activePageIdx, text);
   markUnsaved();
-  
-  // Update live preview in real time if in Read Mode or preview is visible
   renderMarkdown(text, assetsRegistry, previewContainerInner);
 }
 
@@ -481,10 +636,8 @@ function handleMarkupChange() {
 }
 
 function handleImagePaste(name, dataURL) {
-  // Store image in assets registry
   assetsRegistry[name] = dataURL;
-  
-  // Track asset in current page assets list
+
   if (!notesData.pages[activePageIdx]) {
     notesData.pages[activePageIdx] = { markdown: '', assets: [] };
   }
@@ -496,7 +649,6 @@ function handleImagePaste(name, dataURL) {
   markUnsaved();
 }
 
-// Buffer notes string in memory
 function saveActivePageNotes(pageIdx, text) {
   if (!notesData.pages[pageIdx]) {
     notesData.pages[pageIdx] = { markdown: '', assets: [] };
@@ -504,16 +656,13 @@ function saveActivePageNotes(pageIdx, text) {
   notesData.pages[pageIdx].markdown = text;
 }
 
-// Scan for orphaned notes (notes belonging to indexes >= PDF page count)
 function checkOrphanedNotes() {
-  const pageCount = notesData.meta.pageCount || 999999;
+  const totalPages = getNumPages() || notesData.meta?.pageCount || 999999;
   const orphans = {};
 
   Object.entries(notesData.pages).forEach(([pIdxStr, data]) => {
-    const pIdx = parseInt(pIdxStr);
-    // If page index is greater than or equal to current pages count in PDF
-    // And contains markdown text
-    if (pIdx >= numPages && data.markdown.trim()) {
+    const pIdx = parseInt(pIdxStr, 10);
+    if (!isNaN(pIdx) && pIdx >= totalPages && data?.markdown?.trim()) {
       orphans[pIdx] = data;
     }
   });
@@ -521,17 +670,24 @@ function checkOrphanedNotes() {
   renderOrphanedNotes(orphans, handleRestoreOrphan);
 }
 
-// Action to restore an orphaned note back to active editor space
 function handleRestoreOrphan(oldPageIdxStr, orphanData) {
-  // Copy to current page notes
   const currentText = getEditorContent();
-  const restoredText = `${currentText}\n\n### Restored Note (Page ${parseInt(oldPageIdxStr) + 1})\n${orphanData.markdown}`;
+  const separator = currentText.trim() ? '\n\n' : '';
+  const restoredText = `${currentText}${separator}### Restored Note (Page ${parseInt(oldPageIdxStr, 10) + 1})\n${orphanData.markdown}`;
   setEditorContent(restoredText);
   saveActivePageNotes(activePageIdx, restoredText);
-  
-  // Delete from orphaned list
+
+  if (Array.isArray(orphanData.assets) && orphanData.assets.length > 0) {
+    notesData.pages[activePageIdx].assets ??= [];
+    orphanData.assets.forEach((assetName) => {
+      if (!notesData.pages[activePageIdx].assets.includes(assetName)) {
+        notesData.pages[activePageIdx].assets.push(assetName);
+      }
+    });
+  }
+
   delete notesData.pages[oldPageIdxStr];
-  
+  updateNotesPreview();
   checkOrphanedNotes();
   markUnsaved();
 }
@@ -544,12 +700,11 @@ function markUnsaved() {
     updateSyncStatusBadge();
   }
 
-  // Clear existing timer and schedule a debounced auto-save
   if (autoSaveTimer) clearTimeout(autoSaveTimer);
-  
+
   autoSaveTimer = setTimeout(async () => {
     await triggerSave();
-  }, 3000); // 3 seconds debounce
+  }, 3000);
 }
 
 async function triggerSave(forceFinal = false) {
@@ -558,82 +713,136 @@ async function triggerSave(forceFinal = false) {
   saveState = 'saving';
   updateSyncStatusBadge();
 
-  // Make sure current page buffer is saved
   saveActivePageNotes(activePageIdx, getEditorContent());
-
   const markup = getMarkupData();
 
   try {
     if (forceFinal) {
-      // Formal permanent save
       await saveWorkspaceToCache(activePdfHash, activePdfName, notesData.pages, assetsRegistry, activePdfBytes);
       await saveMarkupToCache(activePdfHash, markup);
       await clearRecoveryJournal(activePdfHash);
 
       if (activeDirHandle) {
         const mdText = compileMarkdownDocument();
-        await writeToLocalFolder(activeDirHandle, activePdfName, { ...notesData, assets: assetsRegistry }, mdText);
+        await writeToLocalFolder(
+          activeDirHandle,
+          activePdfName,
+          { ...notesData, markup, assets: assetsRegistry },
+          mdText,
+          { allowPrompt: true }
+        );
+        saveState = 'saved';
+      } else {
+        saveState = 'cache-only';
       }
-      
-      saveState = 'saved';
     } else {
-      // Immediate Recovery Journaling (Crash prevention)
       await saveRecoveryJournal(activePdfHash, activePdfName, notesData.pages, markup, activePdfBytes);
-      
-      // Auto-save back to Directory Handle (if folder linked)
+
       if (activeDirHandle) {
+        const mdText = compileMarkdownDocument();
+        await writeToLocalFolder(
+          activeDirHandle,
+          activePdfName,
+          { ...notesData, markup, assets: assetsRegistry },
+          mdText,
+          { allowPrompt: false }
+        );
         await saveWorkspaceToCache(activePdfHash, activePdfName, notesData.pages, assetsRegistry, activePdfBytes);
         await saveMarkupToCache(activePdfHash, markup);
         await clearRecoveryJournal(activePdfHash);
-
-        const mdText = compileMarkdownDocument();
-        await writeToLocalFolder(activeDirHandle, activePdfName, { ...notesData, assets: assetsRegistry }, mdText);
         saveState = 'saved';
       } else {
-        // If no folder linked, it is only saved in IndexedDB logs / journal.
-        // We will show it as Cache Only
         saveState = 'cache-only';
       }
     }
   } catch (error) {
-    console.error('Auto-save write failed:', error);
-    saveState = 'unsaved';
+    if (error?.code === 'PERMISSION_REQUIRED') {
+      saveState = 'permission-needed';
+    } else {
+      console.error('Auto-save write failed:', error);
+      saveState = 'unsaved';
+    }
   }
 
   updateSyncStatusBadge();
 }
 
-// Update the sync status UI badge
 function updateSyncStatusBadge() {
-  // Sync status pill removed from UI
+  if (!syncStatusBadge) return;
+  if (!activePdfHash && !activeDirHandle) {
+    syncStatusBadge.hidden = true;
+    return;
+  }
+
+  syncStatusBadge.hidden = false;
+  syncStatusBadge.classList.remove('saved', 'cache-only', 'unsaved', 'saving', 'permission-needed');
+
+  const iconEl = syncStatusBadge.querySelector('.sync-icon');
+  const labelEl = syncStatusBadge.querySelector('.sync-label');
+
+  switch (saveState) {
+    case 'saving':
+      syncStatusBadge.classList.add('saving');
+      if (iconEl) iconEl.textContent = 'sync';
+      if (labelEl) labelEl.textContent = 'Saving...';
+      syncStatusBadge.title = 'Saving workspace...';
+      break;
+    case 'unsaved':
+      syncStatusBadge.classList.add('unsaved');
+      if (iconEl) iconEl.textContent = 'edit_notifications';
+      if (labelEl) labelEl.textContent = 'Unsaved';
+      syncStatusBadge.title = 'Changes pending auto-save';
+      break;
+    case 'cache-only':
+      syncStatusBadge.classList.add('cache-only');
+      if (iconEl) iconEl.textContent = 'inventory_2';
+      if (labelEl) labelEl.textContent = 'Cached';
+      syncStatusBadge.title = 'Saved in browser cache. Click Save to export .pdfmd or Link Folder to sync.';
+      break;
+    case 'permission-needed':
+      syncStatusBadge.classList.add('unsaved');
+      if (iconEl) iconEl.textContent = 'folder_off';
+      if (labelEl) labelEl.textContent = 'Reconnect Folder';
+      syncStatusBadge.title = 'Click to re-grant permission to your linked local folder';
+      break;
+    default:
+      syncStatusBadge.classList.add('saved');
+      if (iconEl) iconEl.textContent = 'cloud_done';
+      if (labelEl) labelEl.textContent = 'Saved';
+      syncStatusBadge.title = 'All changes saved';
+  }
 }
 
-// Link local folder directory using Web File System Access API
 async function handleLinkFolder() {
   if (!window.showDirectoryPicker) {
-    alert('Your browser does not support the File System Access API. Please use Chrome/Edge, or manually export your workspace bundle using "Save".');
+    await showAlertDialog(
+      'Unsupported Browser',
+      'Your browser does not support the File System Access API. Please use Chrome/Edge, or export your workspace bundle using "Save".'
+    );
     return;
   }
 
   try {
-    const handle = await window.showDirectoryPicker({
-      mode: 'readwrite'
-    });
-    
-    // Save handle in IndexedDB
+    const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
     activeDirHandle = handle;
     await saveDirHandle(handle);
 
-    // Save workspace files to this directory immediately
-    await triggerSave(true);
+    if (activePdfHash) {
+      await triggerSave(true);
+    } else {
+      saveState = 'saved';
+      updateSyncStatusBadge();
+    }
+    announceStatus('Local folder linked.');
   } catch (error) {
-    console.error('Directory selection failed:', error);
+    if (error?.name !== 'AbortError') {
+      console.error('Directory selection failed:', error);
+    }
   }
 }
 
 // --- FILE FORMAT EXPORTERS / IMPORTERS ---
 
-// Compile notes JSON map into sequentially compiled Markdown document with front-matter markers
 function compileMarkdownDocument() {
   let docText = `---
 app: pdf-notes-editor
@@ -642,16 +851,13 @@ pdf-hash: ${activePdfHash}
 last-modified: ${new Date().toISOString()}
 ---\n\n`;
 
-  // Sort page indexes numerically
-  const pages = Object.keys(notesData.pages).sort((a, b) => parseInt(a) - parseInt(b));
-  
-  pages.forEach(pIdxStr => {
-    const pIdx = parseInt(pIdxStr);
+  const pages = Object.keys(notesData.pages).sort((a, b) => parseInt(a, 10) - parseInt(b, 10));
+
+  pages.forEach((pIdxStr) => {
+    const pIdx = parseInt(pIdxStr, 10);
     const pageObj = notesData.pages[pIdxStr];
-    if (pageObj && pageObj.markdown.trim()) {
-      docText += `---
-page: ${pIdx + 1}
----\n`;
+    if (pageObj && pageObj.markdown?.trim()) {
+      docText += `---\npage: ${pIdx + 1}\n---\n`;
       docText += pageObj.markdown.trim() + '\n\n';
     }
   });
@@ -659,114 +865,88 @@ page: ${pIdx + 1}
   return docText;
 }
 
-// Parse sequentially compiled markdown back to notesData pages structure
-function parseMarkdownDocument(mdText) {
-  const pages = {};
-  
-  // Regex to split markdown by front-matter page dividers
-  const sections = mdText.split(/---\npage:\s*(\d+)\n---\n/);
-  
-  if (sections.length > 1) {
-    for (let i = 1; i < sections.length; i += 2) {
-      const pageNum = parseInt(sections[i]);
-      const content = sections[i + 1];
-      if (pageNum && content) {
-        pages[pageNum - 1] = {
-          markdown: content.trim(),
-          assets: []
-        };
-      }
-    }
-  }
-  
-  return pages;
-}
-
-// Export workspace bundle (.pdfmd / .zip)
+// Export workspace bundle (.pdfmd / .zip) with lazy-loaded JSZip
 async function exportWorkspaceBundle() {
-  if (!activePdfBytes) {
-    alert('Please load a PDF document first.');
+  if (!activePdfBytes || activePdfBytes.byteLength === 0) {
+    await showAlertDialog('No Document Loaded', 'Please load a PDF document first.');
     return;
   }
 
-  // Force save current page
   saveActivePageNotes(activePageIdx, getEditorContent());
 
-  const zip = new JSZip();
-
-  // 1. Add original PDF
-  zip.file(activePdfName, activePdfBytes);
-
-  // 2. Add notes.json
-  const workspaceJSON = {
-    meta: {
-      version: '1.0.0',
-      pdfHash: activePdfHash,
-      originalName: activePdfName,
-      lastModified: new Date().toISOString()
-    },
-    pages: notesData.pages,
-    markup: getMarkupData()
-  };
-  zip.file('notes.json', JSON.stringify(workspaceJSON, null, 2));
-
-  // 3. Add images directory
-  const assetsDir = zip.folder('assets');
-  for (const [imgName, dataURL] of Object.entries(assetsRegistry)) {
-    try {
-      const blob = dataURLtoBlob(dataURL);
-      assetsDir.file(imgName, blob);
-    } catch (err) {
-      console.error('Failed bundling image into zip:', imgName, err);
-    }
-  }
-
-  // Generate ZIP blob and download
   try {
+    const { default: JSZip } = await import('jszip');
+    const zip = new JSZip();
+
+    zip.file(activePdfName, activePdfBytes);
+
+    const workspaceJSON = {
+      meta: {
+        version: '1.0.0',
+        pdfHash: activePdfHash,
+        originalName: activePdfName,
+        pageCount: getNumPages(),
+        lastModified: new Date().toISOString()
+      },
+      pages: notesData.pages,
+      markup: getMarkupData()
+    };
+    zip.file('notes.json', JSON.stringify(workspaceJSON, null, 2));
+
+    const assetsDir = zip.folder('assets');
+    for (const [imgName, dataURL] of Object.entries(assetsRegistry)) {
+      try {
+        const blob = dataURLtoBlob(dataURL);
+        assetsDir.file(imgName, blob);
+      } catch (err) {
+        console.error('Failed bundling image into zip:', imgName, err);
+      }
+    }
+
     const zipBlob = await zip.generateAsync({ type: 'blob' });
     const baseName = activePdfName.substring(0, activePdfName.lastIndexOf('.')) || activePdfName;
     const downloadName = `${baseName}_workspace.pdfmd`;
 
+    const blobUrl = URL.createObjectURL(zipBlob);
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(zipBlob);
+    a.href = blobUrl;
     a.download = downloadName;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    
-    // Clear recovery journal once downloaded
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+
     await clearRecoveryJournal(activePdfHash);
     saveState = 'saved';
     updateSyncStatusBadge();
+    announceStatus(`Exported ${downloadName}`);
   } catch (error) {
     console.error('Error generating bundle:', error);
-    alert('Failed creating bundle.');
+    await showAlertDialog('Export Failed', `Failed creating workspace bundle: ${error?.message || String(error)}`);
   }
 }
 
 // Import workspace bundle (.pdfmd / .zip)
 async function importWorkspaceBundle(zipFile) {
   try {
-    pdfViewer.innerHTML = '<div class="empty-state">Decompressing bundle...</div>';
-    
+    showViewerStatus('Decompressing bundle...');
+
+    const { default: JSZip } = await import('jszip');
     const zip = await JSZip.loadAsync(zipFile);
-    
-    // 1. Load notes.json
+
     const notesJsonFile = zip.file('notes.json');
     if (!notesJsonFile) {
       throw new Error('notes.json not found in workspace bundle');
     }
-    
+
     const notesJSONText = await notesJsonFile.async('text');
     const importedWorkspace = JSON.parse(notesJSONText);
-    
-    // 2. Find and load original PDF file
-    const pdfFilenameFromMeta = importedWorkspace.meta.originalName;
-    let pdfZipFile = zip.file(pdfFilenameFromMeta);
-    
-    // Fallback: search for any .pdf inside the zip
+
+    const pdfFilenameFromMeta = importedWorkspace.meta?.originalName;
+    let pdfZipFile = pdfFilenameFromMeta ? zip.file(pdfFilenameFromMeta) : null;
+
     if (!pdfZipFile) {
-      const pdfFiles = Object.keys(zip.files).filter(name => name.endsWith('.pdf'));
+      const pdfFiles = Object.keys(zip.files).filter((name) => name.toLowerCase().endsWith('.pdf'));
       if (pdfFiles.length > 0) {
         pdfZipFile = zip.file(pdfFiles[0]);
       }
@@ -777,15 +957,16 @@ async function importWorkspaceBundle(zipFile) {
     }
 
     const pdfBuffer = await pdfZipFile.async('arraybuffer');
-    activePdfBytes = pdfBuffer;
+    const pdfBytes = new Uint8Array(pdfBuffer).slice();
+    activePdfBytes = pdfBytes;
     activePdfName = pdfZipFile.name;
-    activePdfHash = importedWorkspace.meta.pdfHash || await calculateSHA256(pdfBuffer);
+    activePdfHash = importedWorkspace.meta?.pdfHash || (await calculateSHA256(pdfBytes));
+    activePageIdx = 0;
+    setActivePage(0);
 
-    // 3. Load assets (images)
+    // Load assets (images) safely with onerror handling
     assetsRegistry = {};
-    const assetsFolder = zip.folder('assets');
     const imageFiles = [];
-    
     zip.forEach((relativePath, file) => {
       if (relativePath.startsWith('assets/') && !file.dir) {
         imageFiles.push(file);
@@ -793,44 +974,44 @@ async function importWorkspaceBundle(zipFile) {
     });
 
     for (const imgFile of imageFiles) {
-      const imgName = imgFile.name.replace('assets/', '');
+      const imgName = imgFile.name.slice('assets/'.length);
       const imgBlob = await imgFile.async('blob');
-      
-      // Convert image blob to data URL
-      const dataURL = await new Promise((resolve) => {
+
+      const dataURL = await new Promise((resolve, reject) => {
         const r = new FileReader();
         r.onload = (e) => resolve(e.target.result);
+        r.onerror = () => reject(r.error || new Error(`Failed reading asset ${imgName}`));
         r.readAsDataURL(imgBlob);
       });
-      
+
       assetsRegistry[imgName] = dataURL;
     }
 
-    // Set workspace data
     notesData = {
-      meta: importedWorkspace.meta,
+      meta: importedWorkspace.meta || {
+        version: '1.0.0',
+        pdfHash: activePdfHash,
+        originalName: activePdfName,
+        lastModified: new Date().toISOString()
+      },
       pages: importedWorkspace.pages || {}
     };
 
-    // Load PDF in Viewer
-    await loadPdfData(pdfBuffer);
+    await loadPdfData(pdfBytes);
 
-    // Load markup
     setMarkupData(importedWorkspace.markup || {});
     resetAssetsCounters(notesData);
-
-    // Load first page notes
+    checkOrphanedNotes();
     loadPageNotes();
-    
-    // Force cache in IndexedDB
+
     await triggerSave(true);
-    
+
     saveState = 'saved';
     updateSyncStatusBadge();
-    
+    announceStatus(`Imported bundle ${zipFile.name}`);
   } catch (error) {
     console.error('Import bundle failed:', error);
-    pdfViewer.innerHTML = `<div class="empty-state" style="color: var(--md-sys-color-error)">Failed to import bundle: ${error.message}</div>`;
+    showViewerStatus(`Failed to import bundle: ${error?.message || String(error)}`, true);
   }
 }
 
@@ -839,26 +1020,29 @@ async function checkForRecoveryJournals() {
   try {
     const journals = await checkAllRecoveryJournals();
     if (journals && journals.length > 0) {
-      // Find the most recent journal
-      const recent = journals.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
-      
-      // Render recovery offer banner
+      const recent = journals.toSorted((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
+
       restoreFilenameSpan.textContent = recent.originalName;
+      restoreBanner.hidden = false;
       restoreBanner.classList.remove('hidden');
-      
+
       btnRestoreConfirm.onclick = async () => {
         const cache = await loadWorkspaceFromCache(recent.pdfHash);
-        const pdfBytes = recent.pdfBytes || (cache ? cache.pdfBytes : null);
-        
-        if (pdfBytes) {
-          let resolvedPdfBytes = pdfBytes;
-          if (pdfBytes instanceof Blob) {
-            resolvedPdfBytes = await pdfBytes.arrayBuffer();
+        const pdfBytesSource = recent.pdfBytes || (cache ? cache.pdfBytes : null);
+
+        if (pdfBytesSource) {
+          let resolvedPdfBytes;
+          if (pdfBytesSource instanceof Blob) {
+            resolvedPdfBytes = new Uint8Array(await pdfBytesSource.arrayBuffer());
+          } else {
+            resolvedPdfBytes = new Uint8Array(pdfBytesSource).slice();
           }
+
           activePdfBytes = resolvedPdfBytes;
           activePdfHash = recent.pdfHash;
           activePdfName = recent.originalName;
           activePageIdx = 0;
+          setActivePage(0);
 
           await loadPdfData(resolvedPdfBytes);
 
@@ -872,18 +1056,21 @@ async function checkForRecoveryJournals() {
             pages: recent.pages || {}
           };
 
-          assetsRegistry = cache ? (cache.assets || {}) : {};
+          assetsRegistry = cache ? cache.assets || {} : {};
           setMarkupData(recent.markup || {});
           resetAssetsCounters(notesData);
           checkOrphanedNotes();
           loadPageNotes();
 
           restoreBanner.classList.add('hidden');
-          await triggerSave(true); // Finalize save and clear journal
+          restoreBanner.hidden = true;
+          await triggerSave(true);
         } else {
-          alert(`Could not find cached PDF file bytes for "${recent.originalName}". Please open the original PDF file, and we will restore your recovered notes.`);
-          
-          // Pre-populate notes data in memory so when they open PDF it links up
+          await showAlertDialog(
+            'Original PDF Needed',
+            `Could not find cached PDF file bytes for "${recent.originalName}". Please open the original PDF file to restore your recovered notes.`
+          );
+
           activePdfHash = recent.pdfHash;
           activePdfName = recent.originalName;
           notesData = {
@@ -895,17 +1082,19 @@ async function checkForRecoveryJournals() {
             },
             pages: recent.pages || {}
           };
-          
-          assetsRegistry = cache ? (cache.assets || {}) : {};
+
+          assetsRegistry = cache ? cache.assets || {} : {};
           setMarkupData(recent.markup || {});
           resetAssetsCounters(notesData);
           restoreBanner.classList.add('hidden');
+          restoreBanner.hidden = true;
         }
       };
 
       btnRestoreDiscard.onclick = async () => {
         await clearRecoveryJournal(recent.pdfHash);
         restoreBanner.classList.add('hidden');
+        restoreBanner.hidden = true;
       };
     }
   } catch (err) {
