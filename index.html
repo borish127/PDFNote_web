@@ -317,11 +317,17 @@
               </div>
             </div>
 
-            <!-- Floating Action Button (FAB) -->
-            <button type="button" id="fab-toggle-mode" class="m3-fab" title="Switch to Edit Mode (Ctrl + E)"
-              aria-label="Switch to edit mode">
-              <span class="material-symbols-outlined fab-icon" aria-hidden="true">edit</span>
-            </button>
+            <!-- Floating Action Buttons -->
+            <div class="note-fab-group">
+              <button type="button" id="fab-markdown-help" class="m3-fab-mini" title="Markdown Syntax Guide"
+                aria-label="Open Markdown syntax guide" hidden>
+                <span class="material-symbols-outlined" aria-hidden="true">question_mark</span>
+              </button>
+              <button type="button" id="fab-toggle-mode" class="m3-fab" title="Switch to Edit Mode (Ctrl + E)"
+                aria-label="Switch to edit mode">
+                <span class="material-symbols-outlined fab-icon" aria-hidden="true">edit</span>
+              </button>
+            </div>
 
           </div>
 
@@ -436,88 +442,180 @@
           <span class="material-symbols-outlined" aria-hidden="true">close</span>
         </button>
       </div>
-      <div class="dialog-body scrollable-content">
-        <h3>Overview</h3>
-        <p>PDFNote is a client-side web application designed to act as a synchronized PDF viewer and page-by-page
-          Markdown notebook. Your text notes, drawings, and markups are automatically linked to their respective pages.
-        </p>
+      <div class="dialog-tabs m3-tabs" role="tablist" focusgroup="tablist nomemory" aria-label="Help sections">
+        <button type="button" id="help-tab-guide" class="m3-tab active" role="tab" aria-selected="true"
+          aria-controls="help-panel-guide" focusgroupstart>User Guide</button>
+        <button type="button" id="help-tab-markdown" class="m3-tab" role="tab" aria-selected="false"
+          aria-controls="help-panel-markdown">Markdown Syntax</button>
+      </div>
+      <div id="help-dialog-body" class="dialog-body scrollable-content">
+        <div id="help-panel-guide" class="help-tab-panel" role="tabpanel" aria-labelledby="help-tab-guide">
+          <h3>Overview</h3>
+          <p>PDFNote is a client-side web application designed to act as a synchronized PDF viewer and page-by-page
+            Markdown notebook. Your text notes, drawings, and markups are automatically linked to their respective pages.
+          </p>
 
-        <h3>Loading &amp; Saving Documents</h3>
-        <ul>
-          <li><strong>Open PDF</strong>: Loads a PDF file for viewing and drawing.</li>
-          <li><strong>Open Bundle (.pdfmd / .zip)</strong>: Restores a saved workspace. This loads the original PDF
-            file, all of your page-by-page markdown notes, and drawing layers.</li>
-          <li><strong>Link Folder</strong>: Connects to a local directory on your device using the File System Access
-            API. Enabling this folder sync allows the app to automatically write <code>{pdf_name}_notes.json</code>,
-            <code>{pdf_name}_notes.md</code>, and individual assets directly to your disk while you work.
-          </li>
-          <li><strong>Save</strong>: Exports your workspace as a <code>.pdfmd</code> zipped file containing notes,
-            images, drawings, and the PDF.</li>
-        </ul>
+          <h3>Loading &amp; Saving Documents</h3>
+          <ul>
+            <li><strong>Open PDF</strong>: Loads a PDF file for viewing and drawing.</li>
+            <li><strong>Open Bundle (.pdfmd / .zip)</strong>: Restores a saved workspace. This loads the original PDF
+              file, all of your page-by-page markdown notes, and drawing layers.</li>
+            <li><strong>Link Folder</strong>: Connects to a local directory on your device using the File System Access
+              API. Enabling this folder sync allows the app to automatically write <code>{pdf_name}_notes.json</code>,
+              <code>{pdf_name}_notes.md</code>, and individual assets directly to your disk while you work.
+            </li>
+            <li><strong>Save</strong>: Exports your workspace as a <code>.pdfmd</code> zipped file containing notes,
+              images, drawings, and the PDF.</li>
+          </ul>
 
-        <h3>Toolbar Control Reference</h3>
-        <ul>
-          <li><span class="material-symbols-outlined inline-icon" aria-hidden="true">picture_as_pdf</span> <strong>Open
-              PDF</strong>: Load
-            a PDF file.</li>
-          <li><span class="material-symbols-outlined inline-icon" aria-hidden="true">folder_open</span> <strong>Open
-              Bundle</strong>: Load
-            a saved workspace package.</li>
-          <li><span class="material-symbols-outlined inline-icon" aria-hidden="true">sync</span> <strong>Link
-              Folder</strong>: Sync
-            directly to a local device folder.</li>
-          <li><span class="material-symbols-outlined inline-icon" aria-hidden="true">save</span> <strong>Save</strong>:
-            Save notes,
-            drawings, and PDF to a bundle package.</li>
-          <li><span class="material-symbols-outlined inline-icon" aria-hidden="true">navigate_before</span> / <span
-              class="material-symbols-outlined inline-icon" aria-hidden="true">navigate_next</span> <strong>Page
-              Navigation</strong>: Turn
-            pages (Keyboard Arrow keys Left/Right also navigate pages when not typing).</li>
-          <li><span class="material-symbols-outlined inline-icon" aria-hidden="true">zoom_out</span> / <span
-              class="material-symbols-outlined inline-icon" aria-hidden="true">zoom_in</span> <strong>Zoom
-              Controls</strong>: Change zoom
-            scale or select fitting behaviors.</li>
-          <li><span class="material-symbols-outlined inline-icon" aria-hidden="true">near_me</span> <strong>Cursor
-              Tool</strong>: Standard selection tool. Select text directly in the PDF.</li>
-          <li><span class="material-symbols-outlined inline-icon" aria-hidden="true">border_color</span>
-            <strong>Highlight Tool</strong>:
-            Drag to highlight content (or select text first, then click Highlight).
-          </li>
-          <li><span class="material-symbols-outlined inline-icon" aria-hidden="true">format_underlined</span>
-            <strong>Underline
-              Tool</strong>: Drag to underline content (or select text first, then click Underline).
-          </li>
-          <li><span class="material-symbols-outlined inline-icon" aria-hidden="true">gesture</span> <strong>Draw
-              Tool</strong>: Freehand
-            drawing tool for canvas overlay annotations.</li>
-          <li><span class="material-symbols-outlined inline-icon" aria-hidden="true">title</span> <strong>Text
-              Tool</strong>: Add floating
-            text boxes anywhere on the PDF.</li>
-          <li><span class="material-symbols-outlined inline-icon" aria-hidden="true">signature</span> <strong>Signature
-              Tool</strong>: Draw,
-            upload, or paste a signature image and click to place it on the page.</li>
-          <li><span class="material-symbols-outlined inline-icon" aria-hidden="true">ink_eraser</span> <strong>Eraser
-              Tool</strong>: Click
-            or drag over individual annotations to erase them.</li>
-        </ul>
+          <h3>Toolbar Control Reference</h3>
+          <ul>
+            <li><span class="material-symbols-outlined inline-icon" aria-hidden="true">picture_as_pdf</span> <strong>Open
+                PDF</strong>: Load
+              a PDF file.</li>
+            <li><span class="material-symbols-outlined inline-icon" aria-hidden="true">folder_open</span> <strong>Open
+                Bundle</strong>: Load
+              a saved workspace package.</li>
+            <li><span class="material-symbols-outlined inline-icon" aria-hidden="true">sync</span> <strong>Link
+                Folder</strong>: Sync
+              directly to a local device folder.</li>
+            <li><span class="material-symbols-outlined inline-icon" aria-hidden="true">save</span> <strong>Save</strong>:
+              Save notes,
+              drawings, and PDF to a bundle package.</li>
+            <li><span class="material-symbols-outlined inline-icon" aria-hidden="true">navigate_before</span> / <span
+                class="material-symbols-outlined inline-icon" aria-hidden="true">navigate_next</span> <strong>Page
+                Navigation</strong>: Turn
+              pages (Keyboard Arrow keys Left/Right also navigate pages when not typing).</li>
+            <li><span class="material-symbols-outlined inline-icon" aria-hidden="true">zoom_out</span> / <span
+                class="material-symbols-outlined inline-icon" aria-hidden="true">zoom_in</span> <strong>Zoom
+                Controls</strong>: Change zoom
+              scale or select fitting behaviors.</li>
+            <li><span class="material-symbols-outlined inline-icon" aria-hidden="true">near_me</span> <strong>Cursor
+                Tool</strong>: Standard selection tool. Select text directly in the PDF.</li>
+            <li><span class="material-symbols-outlined inline-icon" aria-hidden="true">border_color</span>
+              <strong>Highlight Tool</strong>:
+              Drag to highlight content (or select text first, then click Highlight).
+            </li>
+            <li><span class="material-symbols-outlined inline-icon" aria-hidden="true">format_underlined</span>
+              <strong>Underline
+                Tool</strong>: Drag to underline content (or select text first, then click Underline).
+            </li>
+            <li><span class="material-symbols-outlined inline-icon" aria-hidden="true">gesture</span> <strong>Draw
+                Tool</strong>: Freehand
+              drawing tool for canvas overlay annotations.</li>
+            <li><span class="material-symbols-outlined inline-icon" aria-hidden="true">title</span> <strong>Text
+                Tool</strong>: Add floating
+              text boxes anywhere on the PDF.</li>
+            <li><span class="material-symbols-outlined inline-icon" aria-hidden="true">signature</span> <strong>Signature
+                Tool</strong>: Draw,
+              upload, or paste a signature image and click to place it on the page.</li>
+            <li><span class="material-symbols-outlined inline-icon" aria-hidden="true">ink_eraser</span> <strong>Eraser
+                Tool</strong>: Click
+              or drag over individual annotations to erase them.</li>
+          </ul>
 
-        <h3>Markdown Notebook Editor</h3>
-        <ul>
-          <li>Take markdown notes for the active page on the right workspace panel.</li>
-          <li><strong>Toggle Edit/Read Mode</strong>: Toggle between Markdown notes editing and viewing modes using the
-            floating action button (FAB) or the keyboard shortcut <strong>Ctrl + E</strong> (or <strong>Cmd + E</strong>
-            on Mac).</li>
-          <li>Use format accelerators (Link, Image, Mermaid diagrams) in the markdown
-            bar to quickly write rich notes.</li>
-          <li>Images and diagrams are click-to-expand. Clicking them inside notes view mode opens a full-screen blurred
-            lightbox.</li>
-        </ul>
+          <h3>Markdown Notebook Editor</h3>
+          <ul>
+            <li>Take markdown notes for the active page on the right workspace panel.</li>
+            <li><strong>Toggle Edit/Read Mode</strong>: Toggle between Markdown notes editing and viewing modes using the
+              floating action button (FAB) or the keyboard shortcut <strong>Ctrl + E</strong> (or <strong>Cmd + E</strong>
+              on Mac).</li>
+            <li>Use format accelerators (Link, Image, Mermaid diagrams) in the markdown
+              bar to quickly write rich notes.</li>
+            <li>Images and diagrams are click-to-expand. Clicking them inside notes view mode opens a full-screen blurred
+              lightbox.</li>
+          </ul>
 
-        <h3>Auto-Save &amp; Cache Recovery</h3>
-        <ul>
-          <li>Typing or drawing automatically saves data to an IndexedDB background cache every 3 seconds.</li>
-          <li>If a browser crash occurs, the app prompts you to restore your exact unsaved session when you reload.</li>
-        </ul>
+          <h3>Auto-Save &amp; Cache Recovery</h3>
+          <ul>
+            <li>Typing or drawing automatically saves data to an IndexedDB background cache every 3 seconds.</li>
+            <li>If a browser crash occurs, the app prompts you to restore your exact unsaved session when you reload.</li>
+          </ul>
+        </div>
+
+        <div id="help-panel-markdown" class="help-tab-panel" role="tabpanel" aria-labelledby="help-tab-markdown" hidden>
+          <h3>Headings</h3>
+          <p>Use 1 to 6 <code>#</code> symbols followed by a space to create section headings:</p>
+          <pre class="help-code-sample"><code># Heading 1
+## Heading 2
+### Heading 3
+#### Heading 4</code></pre>
+
+          <h3>Text Formatting</h3>
+          <ul>
+            <li><code>*italic*</code> or <code>_italic_</code> → <em>italic</em></li>
+            <li><code>**bold**</code> or <code>__bold__</code> → <strong>bold</strong></li>
+            <li><code>***bold italic***</code> → <strong><em>bold italic</em></strong></li>
+            <li><code>`inline code`</code> → <code>inline code</code></li>
+            <li>End a line with two spaces or use <code>&lt;br&gt;</code> for a manual line break.</li>
+          </ul>
+
+          <h3>Lists</h3>
+          <p>Create unordered, ordered, or nested lists (indent nested items by 2–4 spaces):</p>
+          <pre class="help-code-sample"><code>- Unordered item (* or + also work)
+  - Nested item
+- Another item
+
+1. First step
+2. Second step
+   1. Sub-step</code></pre>
+
+          <h3>Links &amp; Images</h3>
+          <ul>
+            <li><strong>Links:</strong> <code>[Link label](https://example.com)</code> or
+              <code>[With title](https://example.com "Hover title")</code> (<code>http:</code>, <code>https:</code>,
+              <code>mailto:</code>, and <code>#anchor</code> links are supported).</li>
+            <li><strong>External images:</strong> <code>![Alt text](https://example.com/photo.png)</code></li>
+            <li><strong>Local pasted/uploaded images:</strong> Paste (<code>Ctrl+V</code>), drag-and-drop an image onto
+              the editor, or click the Image toolbar button to insert
+              <code>![User Asset](assets/img_p0_0.png)</code>.</li>
+            <li>Click any image in Read Mode to open it in the full-screen lightbox.</li>
+          </ul>
+
+          <h3>Blockquotes &amp; Dividers</h3>
+          <pre class="help-code-sample"><code>&gt; Highlighted quote or reference note.
+&gt;
+&gt; Multiple paragraphs inside a quote.
+
+---</code></pre>
+
+          <h3>Code Blocks</h3>
+          <p>Wrap multi-line code in triple backticks (<code>```</code>), with an optional language name:</p>
+          <pre class="help-code-sample"><code>```js
+function greet(name) {
+  return `Hello, ${name}`;
+}
+```</code></pre>
+
+          <h3>Mermaid Diagrams</h3>
+          <p>Create diagrams using a fenced <code>mermaid</code> block (or click the Diagram button in the notes
+            toolbar). Click any rendered diagram in Read Mode to zoom in the lightbox:</p>
+          <pre class="help-code-sample"><code>```mermaid
+graph TD
+    A[Read Page] --&gt; B{Important?}
+    B --&gt;|Yes| C[Highlight &amp; Note]
+    B --&gt;|No| D[Next Page]
+```</code></pre>
+          <p>Supported Mermaid types include flowcharts (<code>graph TD</code>/<code>LR</code>),
+            <code>sequenceDiagram</code>, <code>classDiagram</code>, <code>stateDiagram-v2</code>,
+            <code>erDiagram</code>, <code>gantt</code>, <code>pie</code>, and <code>mindmap</code>.</p>
+
+          <h3>Safe HTML Elements</h3>
+          <p>PDFNote uses standard CommonMark plus a sanitized HTML subset for extra formatting such as highlights,
+            strikethrough, collapsible sections, and tables:</p>
+          <pre class="help-code-sample"><code>&lt;mark&gt;Highlighted text&lt;/mark&gt;, &lt;del&gt;deleted&lt;/del&gt;, &lt;u&gt;underlined&lt;/u&gt;
+H&lt;sub&gt;2&lt;/sub&gt;O and x&lt;sup&gt;2&lt;/sup&gt;
+
+&lt;details&gt;
+  &lt;summary&gt;Collapsible note&lt;/summary&gt;
+  Hidden details revealed on click.
+&lt;/details&gt;
+
+&lt;table&gt;
+  &lt;thead&gt;&lt;tr&gt;&lt;th&gt;Term&lt;/th&gt;&lt;th&gt;Definition&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;
+  &lt;tbody&gt;&lt;tr&gt;&lt;td&gt;PDFNote&lt;/td&gt;&lt;td&gt;Page-synced notebook&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;
+&lt;/table&gt;</code></pre>
+        </div>
       </div>
     </dialog>
 
@@ -554,10 +652,17 @@
           </a>
         </div>
 
-        <div class="about-feedback">
-          <p>We invite you to give feedback, report bugs, or share suggestions!</p>
-          <a href="https://github.com/borish127/PDFNote_web/issues" target="_blank" rel="noopener">Give feedback &amp;
-            suggestions</a>
+        <p class="about-feedback-copy">Feedback, bug reports, and suggestions are always welcome —
+          <a href="https://github.com/borish127/PDFNote_web/issues" target="_blank" rel="noopener">open an issue on
+            GitHub</a>.
+        </p>
+
+        <div class="about-more-apps">
+          <a href="https://borish127.com/" target="_blank" rel="noopener"
+            class="m3-btn m3-btn-primary dialog-link">
+            <span class="material-symbols-outlined" aria-hidden="true">apps</span>
+            <span>More apps from Borish127</span>
+          </a>
         </div>
       </div>
     </dialog>

@@ -84,6 +84,7 @@ const rightPanel = document.getElementById('right-panel');
 const btnCollapseRight = document.getElementById('btn-collapse-right');
 const btnExpandRight = document.getElementById('btn-expand-right');
 const fabToggleMode = document.getElementById('fab-toggle-mode');
+const fabMarkdownHelp = document.getElementById('fab-markdown-help');
 const editorContainer = document.getElementById('editor-container');
 const previewContainer = document.getElementById('preview-container');
 const notePageNumSpan = document.getElementById('note-page-num');
@@ -226,6 +227,7 @@ export function setMode(mode) {
     previewContainer.inert = true;
     editorContainer.classList.add('active');
     editorContainer.inert = false;
+    if (fabMarkdownHelp) fabMarkdownHelp.hidden = false;
     fabIcon.textContent = 'visibility';
     fabToggleMode.title = 'Switch to Read Mode (Ctrl + E)';
     fabToggleMode.setAttribute('aria-label', 'Switch to read mode');
@@ -235,6 +237,7 @@ export function setMode(mode) {
     editorContainer.inert = true;
     previewContainer.classList.add('active');
     previewContainer.inert = false;
+    if (fabMarkdownHelp) fabMarkdownHelp.hidden = true;
     fabIcon.textContent = 'edit';
     fabToggleMode.title = 'Switch to Edit Mode (Ctrl + E)';
     fabToggleMode.setAttribute('aria-label', 'Switch to edit mode');

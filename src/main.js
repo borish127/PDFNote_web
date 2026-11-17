@@ -87,6 +87,14 @@ const confirmDialogAlt = document.getElementById('confirm-dialog-alt');
 const confirmDialogOk = document.getElementById('confirm-dialog-ok');
 const confirmDialogClose = document.getElementById('confirm-dialog-close');
 
+const helpTabGuide = document.getElementById('help-tab-guide');
+const helpTabMarkdown = document.getElementById('help-tab-markdown');
+const helpPanelGuide = document.getElementById('help-panel-guide');
+const helpPanelMarkdown = document.getElementById('help-panel-markdown');
+const helpDialog = document.getElementById('help-dialog');
+const helpDialogBody = document.getElementById('help-dialog-body');
+const fabMarkdownHelp = document.getElementById('fab-markdown-help');
+
 function announceStatus(message) {
   if (srStatus) {
     srStatus.textContent = message;
@@ -161,6 +169,46 @@ function setupDialogClosedByFallback() {
   }
 }
 
+function initHelpTabs() {
+  if (!helpTabGuide || !helpTabMarkdown || !helpPanelGuide || !helpPanelMarkdown) return;
+
+  const selectHelpTab = (which) => {
+    const isGuide = which === 'guide';
+    helpTabGuide.classList.toggle('active', isGuide);
+    helpTabGuide.setAttribute('aria-selected', String(isGuide));
+    helpTabGuide.toggleAttribute('focusgroupstart', isGuide);
+
+    helpTabMarkdown.classList.toggle('active', !isGuide);
+    helpTabMarkdown.setAttribute('aria-selected', String(!isGuide));
+    helpTabMarkdown.toggleAttribute('focusgroupstart', !isGuide);
+
+    helpPanelGuide.hidden = !isGuide;
+    helpPanelMarkdown.hidden = isGuide;
+    if (helpDialogBody) helpDialogBody.scrollTop = 0;
+  };
+
+  helpTabGuide.addEventListener('click', () => selectHelpTab('guide'));
+  helpTabMarkdown.addEventListener('click', () => selectHelpTab('markdown'));
+
+  fabMarkdownHelp?.addEventListener('click', () => {
+    selectHelpTab('markdown');
+    if (helpDialog && !helpDialog.open) {
+      helpDialog.showModal();
+    }
+  });
+
+  [helpTabGuide, helpTabMarkdown].forEach((tab) => {
+    tab.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        const next = tab === helpTabGuide ? helpTabMarkdown : helpTabGuide;
+        next.focus();
+        selectHelpTab(next === helpTabGuide ? 'guide' : 'markdown');
+      }
+    });
+  });
+}
+
 // --- INITIALIZATION ---
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -170,6 +218,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   confirmDialogClose?.addEventListener('click', () => {
     confirmDialog.close('cancel');
   });
+
+  initHelpTabs();
 
   initPdfViewer({
     onPageChange: handlePageChange,
