@@ -1,5 +1,5 @@
 import { EditorView, basicSetup } from 'codemirror';
-import { EditorState } from '@codemirror/state';
+import { Compartment, EditorState } from '@codemirror/state';
 import { markdown } from '@codemirror/lang-markdown';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { tags as t } from '@lezer/highlight';
@@ -18,39 +18,12 @@ const markdownHighlightStyle = HighlightStyle.define([
   { tag: t.comment, color: 'var(--md-sys-color-outline)', fontStyle: 'italic' }
 ]);
 
-let editorView = null;
-let editorExtensions = [];
-let currentMode = 'read'; // 'read' or 'edit'
-let activePageIdx = 0;
-let pageAssetsCounter = {}; // keyed by page index, counts pasted images to avoid collisions
+const themeCompartment = new Compartment();
+let currentIsDark = false;
 
-// Callbacks
-let onTextChangeCallback = null;
-let onImagePasteCallback = null;
-
-// DOM Elements
-const rightPanel = document.getElementById('right-panel');
-const btnCollapseRight = document.getElementById('btn-collapse-right');
-const btnExpandRight = document.getElementById('btn-expand-right');
-const fabToggleMode = document.getElementById('fab-toggle-mode');
-const editorContainer = document.getElementById('editor-container');
-const previewContainer = document.getElementById('preview-container');
-const notePageNumSpan = document.getElementById('note-page-num');
-const orphanedNotesSection = document.getElementById('orphaned-notes-section');
-const orphanedHeader = orphanedNotesSection.querySelector('.orphaned-header');
-const orphanedContent = orphanedNotesSection.querySelector('.orphaned-content');
-const orphanedCountSpan = document.getElementById('orphaned-count');
-
-// Initialize the editor
-export function initEditor({ onTextChange, onImagePaste }) {
-  onTextChangeCallback = onTextChange;
-  onImagePasteCallback = onImagePaste;
-
-  editorExtensions = [
-    basicSetup,
-    markdown(),
-    syntaxHighlighting(markdownHighlightStyle),
-    EditorView.theme({
+function createEditorTheme(isDark) {
+  return EditorView.theme(
+    {
       '&': {
         height: '100%',
         fontSize: '14px',
@@ -81,10 +54,56 @@ export function initEditor({ onTextChange, onImagePaste }) {
       '.cm-activeLine': {
         backgroundColor: 'color-mix(in oklab, var(--md-sys-color-surface-variant), transparent 55%)'
       },
-      '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': {
+      '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground': {
         backgroundColor: 'color-mix(in oklab, var(--md-sys-color-primary), transparent 72%)'
+      },
+      '.cm-selectionMatch': {
+        backgroundColor: 'color-mix(in oklab, var(--md-sys-color-primary), transparent 80%)'
+      },
+      '.cm-panels': {
+        backgroundColor: 'var(--md-sys-color-surface-variant)',
+        color: 'var(--md-sys-color-on-surface)'
       }
-    }),
+    },
+    { dark: isDark }
+  );
+}
+
+let editorView = null;
+let editorExtensions = [];
+let currentMode = 'read'; // 'read' or 'edit'
+let activePageIdx = 0;
+let pageAssetsCounter = {}; // keyed by page index, counts pasted images to avoid collisions
+
+// Callbacks
+let onTextChangeCallback = null;
+let onImagePasteCallback = null;
+
+// DOM Elements
+const rightPanel = document.getElementById('right-panel');
+const btnCollapseRight = document.getElementById('btn-collapse-right');
+const btnExpandRight = document.getElementById('btn-expand-right');
+const fabToggleMode = document.getElementById('fab-toggle-mode');
+const editorContainer = document.getElementById('editor-container');
+const previewContainer = document.getElementById('preview-container');
+const notePageNumSpan = document.getElementById('note-page-num');
+const orphanedNotesSection = document.getElementById('orphaned-notes-section');
+const orphanedHeader = orphanedNotesSection.querySelector('.orphaned-header');
+const orphanedContent = orphanedNotesSection.querySelector('.orphaned-content');
+const orphanedCountSpan = document.getElementById('orphaned-count');
+
+// Initialize the editor
+export function initEditor({ onTextChange, onImagePaste }) {
+  onTextChangeCallback = onTextChange;
+  onImagePasteCallback = onImagePaste;
+
+  currentIsDark = document.body.classList.contains('dark-theme');
+
+  editorExtensions = [
+    basicSetup,
+    markdown(),
+    syntaxHighlighting(markdownHighlightStyle),
+    themeCompartment.of(createEditorTheme(currentIsDark)),
     EditorView.updateListener.of((update) => {
       if (update.docChanged && onTextChangeCallback) {
         onTextChangeCallback(update.state.doc.toString());
@@ -230,6 +249,14 @@ function toggleMode() {
   }
 }
 
+export function setEditorTheme(isDark) {
+  currentIsDark = Boolean(isDark);
+  if (!editorView) return;
+  editorView.dispatch({
+    effects: themeCompartment.reconfigure(createEditorTheme(currentIsDark))
+  });
+}
+
 // Get and Set Editor Markdown Content without polluting undo history or firing docChanged
 export function getEditorContent() {
   return editorView ? editorView.state.doc.toString() : '';
@@ -237,9 +264,21 @@ export function getEditorContent() {
 
 export function setEditorContent(text) {
   if (!editorView) return;
+  const freshExtensions = [
+    basicSetup,
+    markdown(),
+    syntaxHighlighting(markdownHighlightStyle),
+    themeCompartment.of(createEditorTheme(currentIsDark)),
+    EditorView.updateListener.of((update) => {
+      if (update.docChanged && onTextChangeCallback) {
+        onTextChangeCallback(update.state.doc.toString());
+      }
+    })
+  ];
+  editorExtensions = freshExtensions;
   const freshState = EditorState.create({
     doc: text || '',
-    extensions: editorExtensions
+    extensions: freshExtensions
   });
   editorView.setState(freshState);
 }

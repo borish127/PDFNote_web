@@ -730,7 +730,7 @@
   }
 
   ::selection {
-    background: rgba(0, 95, 175, 0.3);
+    background: color-mix(in oklab, var(--md-sys-color-primary), transparent 68%);
   }
 
   /* PDF Placeholder Screen */
@@ -745,7 +745,7 @@
     border-radius: 28px;
     border: 2px dashed var(--md-sys-color-outline);
     max-inline-size: 480px;
-    margin-block-start: 64px;
+    margin: auto;
     box-shadow: var(--elevation-2);
   }
 
@@ -1029,6 +1029,10 @@
     display: flex;
     flex-direction: column;
     transition: block-size 200ms cubic-bezier(0.2, 0, 0, 1), max-block-size 200ms cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  .orphaned-notes-section[hidden] {
+    display: none;
   }
 
   .orphaned-notes-section:not(.collapsed) {

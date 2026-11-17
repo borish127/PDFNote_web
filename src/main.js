@@ -13,6 +13,7 @@ import {
   setActivePage,
   setEditorContent,
   getEditorContent,
+  setEditorTheme,
   renderOrphanedNotes,
   resetAssetsCounters
 } from './editor.js';
@@ -341,6 +342,7 @@ function initTheme() {
     }
     const isDark = schemeOverride ? schemeOverride === 'dark' : darkMedia.matches;
     document.body.classList.toggle('dark-theme', isDark);
+    setEditorTheme(isDark);
 
     const iconSpan = btnThemeToggle.querySelector('span');
     if (iconSpan) {
